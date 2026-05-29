@@ -1,0 +1,19 @@
+{
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-05-29T18:42:48.701Z"
+  },
+  "context-mode": {
+    "source": {
+      "source": "github",
+      "repo": "mksglu/context-mode"
+    },
+    "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/context-mode",
+    "lastUpdated": "2026-05-29T18:42:48.621Z",
+    "autoUpdate": true
+  }
+}

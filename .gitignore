@@ -1,0 +1,38 @@
+# ── ~/.claude config repo ───────────────────────────────────
+# Whitelist: ignore every top-level entry, then re-include only the
+# hand-authored config. Patterns are ROOT-ANCHORED (leading /) so common
+# filenames like README.md / settings.json / .gitignore buried deeper in
+# the tree (plugins/, security/, …) are NOT swept in.
+
+# ignore everything at the top level
+/*
+
+# top-level config files
+!/.gitignore
+!/README.md
+!/CLAUDE.md
+!/RTK.md
+!/settings.json
+!/statusline.sh
+!/sync.sh
+
+# custom directories (re-include the dir; everything inside comes with it)
+!/commands/
+!/hooks/
+!/rules/
+!/agents/
+!/skills/
+
+# plugins: keep ONLY the manifests, not the downloaded plugin code
+!/plugins/
+/plugins/*
+!/plugins/installed_plugins.json
+!/plugins/known_marketplaces.json
+
+# belt-and-suspenders: never commit secrets / vendored junk, even if it
+# lands inside a kept directory
+**/.credentials.json
+**/settings.local.json
+**/node_modules/
+**/.git/
+**/.DS_Store

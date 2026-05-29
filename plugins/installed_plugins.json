@@ -1,0 +1,137 @@
+{
+  "version": 2,
+  "plugins": {
+    "typescript-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/typescript-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-03T02:17:51.075Z",
+        "lastUpdated": "2026-05-03T02:17:51.075Z"
+      }
+    ],
+    "context-mode@context-mode": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/context-mode/context-mode/1.0.151",
+        "version": "1.0.151",
+        "installedAt": "2026-05-03T23:10:29.570Z",
+        "lastUpdated": "2026-05-29T05:13:37.874Z",
+        "gitCommitSha": "82b034839227c8f943609dd9e0c3a6a81cafeb76"
+      }
+    ],
+    "code-review@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-04T05:49:41.247Z",
+        "lastUpdated": "2026-05-04T05:49:41.247Z"
+      }
+    ],
+    "superpowers@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/superpowers/5.1.0",
+        "version": "5.1.0",
+        "installedAt": "2026-05-04T06:44:13.966Z",
+        "lastUpdated": "2026-05-05T14:32:22.367Z",
+        "gitCommitSha": "e7a2d16476bf042e9add4699c9d018a90f86e4a6"
+      }
+    ],
+    "feature-dev@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/feature-dev/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-04T06:44:55.828Z",
+        "lastUpdated": "2026-05-04T06:44:55.828Z"
+      }
+    ],
+    "pyright-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pyright-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-04T16:14:25.435Z",
+        "lastUpdated": "2026-05-04T16:14:25.435Z"
+      }
+    ],
+    "pr-review-toolkit@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/Users/arkashjain/Desktop/work/benmore/PCS/PCS_code/PCS_prod",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-06T15:10:43.151Z",
+        "lastUpdated": "2026-05-26T22:26:13.138Z"
+      }
+    ],
+    "skill-creator@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/skill-creator/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-09T03:46:06.746Z",
+        "lastUpdated": "2026-05-09T03:46:06.746Z"
+      }
+    ],
+    "frontend-design@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-09T23:05:21.745Z",
+        "lastUpdated": "2026-05-09T23:05:21.745Z"
+      }
+    ],
+    "claude-code-setup@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/claude-code-setup/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-17T23:01:53.839Z",
+        "lastUpdated": "2026-05-17T23:01:53.839Z"
+      }
+    ],
+    "claude-md-management@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/claude-md-management/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-19T19:12:37.079Z",
+        "lastUpdated": "2026-05-19T19:12:37.079Z"
+      }
+    ],
+    "commit-commands@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/commit-commands/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-21T20:40:54.183Z",
+        "lastUpdated": "2026-05-21T20:40:54.183Z"
+      }
+    ],
+    "code-simplifier@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-simplifier/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-21T20:41:08.465Z",
+        "lastUpdated": "2026-05-21T20:41:08.465Z"
+      }
+    ],
+    "security-guidance@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/security-guidance/2.0.0",
+        "version": "2.0.0",
+        "installedAt": "2026-05-25T18:45:20.962Z",
+        "lastUpdated": "2026-05-26T23:33:59.229Z"
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "context-mode@context-mode": true
+  }
+}
