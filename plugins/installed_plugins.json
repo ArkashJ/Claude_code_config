@@ -23,11 +23,11 @@
     "code-review@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/fe857f8ce9f1",
-        "version": "fe857f8ce9f1",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/83293c9f9488",
+        "version": "83293c9f9488",
         "installedAt": "2026-05-04T05:49:41.247Z",
-        "lastUpdated": "2026-05-30T00:02:52.858Z",
-        "gitCommitSha": "fe857f8ce9f11c46036ae6709e2e4b4c516e5fa4"
+        "lastUpdated": "2026-05-30T17:16:47.637Z",
+        "gitCommitSha": "83293c9f9488c095cec26d8616a2205af51adbb4"
       }
     ],
     "superpowers@claude-plugins-official": [
@@ -43,11 +43,11 @@
     "feature-dev@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/feature-dev/fe857f8ce9f1",
-        "version": "fe857f8ce9f1",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/feature-dev/83293c9f9488",
+        "version": "83293c9f9488",
         "installedAt": "2026-05-04T06:44:55.828Z",
-        "lastUpdated": "2026-05-30T00:02:52.329Z",
-        "gitCommitSha": "fe857f8ce9f11c46036ae6709e2e4b4c516e5fa4"
+        "lastUpdated": "2026-05-30T17:16:47.639Z",
+        "gitCommitSha": "83293c9f9488c095cec26d8616a2205af51adbb4"
       }
     ],
     "pyright-lsp@claude-plugins-official": [
@@ -72,21 +72,21 @@
     "skill-creator@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/skill-creator/fe857f8ce9f1",
-        "version": "fe857f8ce9f1",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/skill-creator/83293c9f9488",
+        "version": "83293c9f9488",
         "installedAt": "2026-05-09T03:46:06.746Z",
-        "lastUpdated": "2026-05-30T00:02:52.325Z",
-        "gitCommitSha": "fe857f8ce9f11c46036ae6709e2e4b4c516e5fa4"
+        "lastUpdated": "2026-05-30T17:16:47.638Z",
+        "gitCommitSha": "83293c9f9488c095cec26d8616a2205af51adbb4"
       }
     ],
     "frontend-design@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/frontend-design/fe857f8ce9f1",
-        "version": "fe857f8ce9f1",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/frontend-design/83293c9f9488",
+        "version": "83293c9f9488",
         "installedAt": "2026-05-09T23:05:21.745Z",
-        "lastUpdated": "2026-05-30T00:02:52.361Z",
-        "gitCommitSha": "fe857f8ce9f11c46036ae6709e2e4b4c516e5fa4"
+        "lastUpdated": "2026-05-30T17:16:47.639Z",
+        "gitCommitSha": "83293c9f9488c095cec26d8616a2205af51adbb4"
       }
     ],
     "claude-code-setup@claude-plugins-official": [
@@ -110,11 +110,11 @@
     "commit-commands@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/commit-commands/fe857f8ce9f1",
-        "version": "fe857f8ce9f1",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/commit-commands/83293c9f9488",
+        "version": "83293c9f9488",
         "installedAt": "2026-05-21T20:40:54.183Z",
-        "lastUpdated": "2026-05-30T00:02:52.995Z",
-        "gitCommitSha": "fe857f8ce9f11c46036ae6709e2e4b4c516e5fa4"
+        "lastUpdated": "2026-05-30T17:16:47.639Z",
+        "gitCommitSha": "83293c9f9488c095cec26d8616a2205af51adbb4"
       }
     ],
     "code-simplifier@claude-plugins-official": [
@@ -135,8 +135,5 @@
         "lastUpdated": "2026-05-26T23:33:59.229Z"
       }
     ]
-  },
-  "enabledPlugins": {
-    "context-mode@context-mode": true
   }
 }
