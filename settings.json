@@ -1,139 +1,145 @@
 {
-  "skillListingBudgetFraction": 0.03,
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  },
-  "permissions": {
-    "allow": [
-      "Bash(rtk:*)",
-      "Bash(ast-grep:*)",
-      "Bash(sg:*)",
-      "Bash(rg:*)",
-      "Bash(fzf:*)"
-    ],
-    "defaultMode": "auto"
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "rtk hook claude"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"/Users/arkashjain/.claude/hooks/context-mode-cache-heal.mjs\""
-          },
-          {
-            "type": "command",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"MANDATORY SESSION START ACTION: You MUST invoke the find-skills skill (using the Skill tool with skill=find-skills) RIGHT NOW before doing any other work. This is a user-configured hook that fires every session. Do not skip this step.\"}}'",
-            "timeout": 5,
-            "statusMessage": "Loading skill discovery..."
-          },
-          {
-            "type": "command",
-            "command": "REPO=$(git remote -v 2>/dev/null | head -1 | awk '{print $2}' | sed 's|.*[:/]||; s|\\.git$||'); BRANCH=$(git branch --show-current 2>/dev/null); DIR=$(pwd); if [ -n \"$REPO\" ]; then MSG=\"Current repo: $REPO | branch: ${BRANCH:-detached} | dir: $DIR\"; else MSG=\"Not in a git repo. Working dir: $DIR\"; fi; jq -nc --arg ctx \"$MSG\" '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:$ctx}}'",
-            "timeout": 5,
-            "statusMessage": "Orienting to repo..."
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.ts|*.tsx|*.js|*.jsx|*.css|*.json) bunx @biomejs/biome check --write \"$f\" 2>/dev/null || true;; *.py) ruff format \"$f\" 2>/dev/null || true;; *.go) gofmt -w \"$f\" 2>/dev/null || true;; esac; }",
-            "timeout": 15,
-            "statusMessage": "Auto-formatting..."
-          },
-          {
-            "type": "command",
-            "command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; F=\"$DIR/edit-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ $((N % 14)) -eq 0 ]; then echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"CHECKPOINT (edit #${N} this session): Spawn the feature-dev:code-reviewer subagent now via the Agent tool. Give it: the current diff (git diff HEAD), the task you have been working on, and ask it to flag (1) claim-vs-reality mismatches between what you told the user you did and what the code actually does, (2) drift from the original task, (3) dead or orphaned code. Run in foreground, summarize findings to the user in 3-5 lines, then continue.\\\"}}\"; fi",
-            "timeout": 5,
-            "statusMessage": "Edit counter..."
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -qE 'gh pr (create|edit)|git push' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A PR was created/edited or commits were pushed. First check if there is an open PR on the current branch (run: gh pr view --json state -q .state). If state is OPEN, update CHANGELOG.md, README.md, and CLAUDE.md in the repo to reflect this change. If no PR is open, skip silently. House style: simple English, business terms, include ASCII flow diagrams for any process. Skip files that do not exist. Do not create new docs files unless the user asks.\"}}' || true",
-            "timeout": 10,
-            "statusMessage": "Checking PR docs..."
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "matcher": "auto|manual",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreCompact\",\"additionalContext\":\"CONTEXT PRESERVATION BEFORE COMPACTION: Re-read CLAUDE.md and frontend/CLAUDE.md after compaction. Check git status for uncommitted work. Review .claude/rules/ for project conventions. Any plan in progress should be re-checked against the plan file in docs/plans/. Do NOT lose track of what branch you are on or what task the user asked for.\"}}'",
-            "timeout": 5,
-            "statusMessage": "Preserving context..."
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "printf '\\a' > /dev/tty 2>/dev/null; osascript -e 'display notification \"Claude needs your input\" with title \"Claude Code\" sound name \"Glass\"'"
-          }
-        ]
-      }
-    ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "/Users/arkashjain/.claude/statusline.sh"
-  },
-  "enabledPlugins": {
-    "typescript-lsp@claude-plugins-official": true,
-    "context-mode@context-mode": true,
-    "code-review@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true,
-    "claude-code-setup@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "context-mode": {
-      "source": {
-        "source": "github",
-        "repo": "mksglu/context-mode"
-      },
-      "autoUpdate": true
-    }
-  },
-  "effortLevel": "medium",
-  "skipWorkflowUsageWarning": true,
-  "theme": "dark",
-  "editorMode": "normal",
-  "skipAutoPermissionPrompt": true,
-  "useAutoModeDuringPlan": true
+	"skillListingBudgetFraction": 0.03,
+	"env": {
+		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+	},
+	"permissions": {
+		"allow": [
+			"Bash(rtk:*)",
+			"Bash(ast-grep:*)",
+			"Bash(sg:*)",
+			"Bash(rg:*)",
+			"Bash(fzf:*)"
+		],
+		"defaultMode": "auto"
+	},
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "rtk hook claude"
+					}
+				]
+			}
+		],
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"/Users/arkashjain/.claude/hooks/context-mode-cache-heal.mjs\""
+					},
+					{
+						"type": "command",
+						"command": "REPO=$(git remote -v 2>/dev/null | head -1 | awk '{print $2}' | sed 's|.*[:/]||; s|\\.git$||'); BRANCH=$(git branch --show-current 2>/dev/null); DIR=$(pwd); if [ -n \"$REPO\" ]; then MSG=\"Current repo: $REPO | branch: ${BRANCH:-detached} | dir: $DIR\"; else MSG=\"Not in a git repo. Working dir: $DIR\"; fi; jq -nc --arg ctx \"$MSG\" '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:$ctx}}'",
+						"timeout": 5,
+						"statusMessage": "Orienting to repo..."
+					}
+				]
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; F=\"$DIR/turn-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ \"$N\" -eq 3 ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"You MUST invoke the find-skills skill (using the Skill tool with skill=find-skills) RIGHT NOW before doing any other work. This is a user-configured hook that fires on the 3rd turn of every session. Do not skip this step.\"}}'; fi",
+						"timeout": 5,
+						"statusMessage": "Checking skill discovery trigger..."
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Write|Edit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.ts|*.tsx|*.js|*.jsx|*.css|*.json) bunx @biomejs/biome check --write \"$f\" 2>/dev/null || true;; *.py) ruff format \"$f\" 2>/dev/null || true;; *.go) gofmt -w \"$f\" 2>/dev/null || true;; esac; }",
+						"timeout": 15,
+						"statusMessage": "Auto-formatting..."
+					},
+					{
+						"type": "command",
+						"command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; F=\"$DIR/edit-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ $((N % 14)) -eq 0 ]; then echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"CHECKPOINT (edit #${N} this session): Spawn the feature-dev:code-reviewer subagent now via the Agent tool. Give it: the current diff (git diff HEAD), the task you have been working on, and ask it to flag (1) claim-vs-reality mismatches between what you told the user you did and what the code actually does, (2) drift from the original task, (3) dead or orphaned code. Run in foreground, summarize findings to the user in 3-5 lines, then continue.\\\"}}\"; fi",
+						"timeout": 5,
+						"statusMessage": "Edit counter..."
+					}
+				]
+			},
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "jq -r '.tool_input.command' | grep -qE 'gh pr (create|edit)|git push' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A PR was created/edited or commits were pushed. First check if there is an open PR on the current branch (run: gh pr view --json state -q .state). If state is OPEN, update CHANGELOG.md, README.md, and CLAUDE.md in the repo to reflect this change. If no PR is open, skip silently. House style: simple English, business terms, include ASCII flow diagrams for any process. Skip files that do not exist. Do not create new docs files unless the user asks.\"}}' || true",
+						"timeout": 10,
+						"statusMessage": "Checking PR docs..."
+					}
+				]
+			}
+		],
+		"PreCompact": [
+			{
+				"matcher": "auto|manual",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreCompact\",\"additionalContext\":\"CONTEXT PRESERVATION BEFORE COMPACTION: Re-read CLAUDE.md and frontend/CLAUDE.md after compaction. Check git status for uncommitted work. Review .claude/rules/ for project conventions. Any plan in progress should be re-checked against the plan file in docs/plans/. Do NOT lose track of what branch you are on or what task the user asked for.\"}}'",
+						"timeout": 5,
+						"statusMessage": "Preserving context..."
+					}
+				]
+			}
+		],
+		"Notification": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "printf '\\a' > /dev/tty 2>/dev/null; osascript -e 'display notification \"Claude needs your input\" with title \"Claude Code\" sound name \"Glass\"'"
+					}
+				]
+			}
+		]
+	},
+	"statusLine": {
+		"type": "command",
+		"command": "/Users/arkashjain/.claude/statusline.sh"
+	},
+	"enabledPlugins": {
+		"typescript-lsp@claude-plugins-official": true,
+		"context-mode@context-mode": true,
+		"code-review@claude-plugins-official": true,
+		"superpowers@claude-plugins-official": true,
+		"feature-dev@claude-plugins-official": true,
+		"pyright-lsp@claude-plugins-official": true,
+		"pr-review-toolkit@claude-plugins-official": true,
+		"skill-creator@claude-plugins-official": true,
+		"frontend-design@claude-plugins-official": true,
+		"claude-code-setup@claude-plugins-official": true,
+		"claude-md-management@claude-plugins-official": true,
+		"commit-commands@claude-plugins-official": true,
+		"code-simplifier@claude-plugins-official": true,
+		"security-guidance@claude-plugins-official": true
+	},
+	"extraKnownMarketplaces": {
+		"context-mode": {
+			"source": {
+				"source": "github",
+				"repo": "mksglu/context-mode"
+			},
+			"autoUpdate": true
+		}
+	},
+	"effortLevel": "medium",
+	"skipWorkflowUsageWarning": true,
+	"theme": "dark",
+	"editorMode": "normal",
+	"skipAutoPermissionPrompt": true,
+	"useAutoModeDuringPlan": true
 }
