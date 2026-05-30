@@ -6,6 +6,26 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.0.1] — 2026-05-30
+
+### Added
+- `settings.json` — allowlisted the context-mode MCP tools (`ctx_execute`,
+  `ctx_execute_file`, `ctx_batch_execute`, `ctx_search`) to cut permission
+  prompts on the most-used tools (~90 calls/session). These run in a sandboxed
+  subprocess that cannot mutate the host filesystem.
+
+### Changed
+- `settings.json` — find-skills `UserPromptSubmit` hook now prunes stale
+  `state/turn-counter-*` files (older than 1 day) on each run, so per-session
+  counters no longer accumulate. Firing is unchanged — exactly once at the 3rd
+  turn, keyed per session.
+- `CLAUDE.md` (global) — added a tool-preferences line: prefer the LSP tool for
+  symbol navigation and ast-grep for structural search/edits over plain grep.
+- `plugins/installed_plugins.json`, `plugins/known_marketplaces.json` — routine
+  plugin auto-update manifest sync.
+
+---
+
 ## [1.0.0] — 2026-05-29
 
 ### Added
@@ -54,4 +74,5 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+[1.0.1]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.0.0

@@ -9,7 +9,11 @@
 			"Bash(ast-grep:*)",
 			"Bash(sg:*)",
 			"Bash(rg:*)",
-			"Bash(fzf:*)"
+			"Bash(fzf:*)",
+			"mcp__plugin_context-mode_context-mode__ctx_execute",
+			"mcp__plugin_context-mode_context-mode__ctx_execute_file",
+			"mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+			"mcp__plugin_context-mode_context-mode__ctx_search"
 		],
 		"defaultMode": "auto"
 	},
@@ -46,7 +50,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; F=\"$DIR/turn-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ \"$N\" -eq 3 ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"You MUST invoke the find-skills skill (using the Skill tool with skill=find-skills) RIGHT NOW before doing any other work. This is a user-configured hook that fires on the 3rd turn of every session. Do not skip this step.\"}}'; fi",
+						"command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; find \"$DIR\" -name 'turn-counter-*' -mtime +1 -delete 2>/dev/null; F=\"$DIR/turn-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ \"$N\" -eq 3 ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"You MUST invoke the find-skills skill (using the Skill tool with skill=find-skills) RIGHT NOW before doing any other work. This is a user-configured hook that fires on the 3rd turn of every session. Do not skip this step.\"}}'; fi",
 						"timeout": 5,
 						"statusMessage": "Checking skill discovery trigger..."
 					}

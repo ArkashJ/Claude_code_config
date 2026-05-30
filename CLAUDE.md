@@ -4,6 +4,7 @@
 - Multiple client repos (TypeScript + Python).
 - Auto-mode trusted; don't ask before reading/grepping.
 - Use context-mode for any tool output over ~20 lines.
+- Prefer the LSP tool for symbol navigation (defs/refs/diagnostics) and ast-grep for structural search and edits, over plain grep/manual reading.
 - Comments: only WHY, never WHAT.
 - ASCII flow diagrams when explaining a process or system; otherwise plain prose.
 - Brainstorm before non-trivial changes; don't impose blanket rules.
