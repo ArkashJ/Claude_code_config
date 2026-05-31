@@ -5,7 +5,7 @@
       "repo": "anthropics/claude-plugins-official"
     },
     "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/claude-plugins-official",
-    "lastUpdated": "2026-05-30T20:27:33.134Z"
+    "lastUpdated": "2026-05-31T00:07:46.437Z"
   },
   "context-mode": {
     "source": {
@@ -13,7 +13,7 @@
       "repo": "mksglu/context-mode"
     },
     "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/context-mode",
-    "lastUpdated": "2026-05-30T20:27:33.066Z",
+    "lastUpdated": "2026-05-31T00:07:46.366Z",
     "autoUpdate": true
   }
 }
