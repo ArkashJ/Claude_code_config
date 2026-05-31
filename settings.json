@@ -63,7 +63,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.ts|*.tsx|*.js|*.jsx|*.css|*.json) bunx @biomejs/biome check --write \"$f\" 2>/dev/null || true;; *.py) ruff format \"$f\" 2>/dev/null || true;; *.go) gofmt -w \"$f\" 2>/dev/null || true;; esac; }",
+						"command": "bash \"$HOME/.claude/hooks/format-on-edit.sh\"",
 						"timeout": 15,
 						"statusMessage": "Auto-formatting..."
 					},

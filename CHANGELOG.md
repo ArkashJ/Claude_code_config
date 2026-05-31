@@ -6,6 +6,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.0.2] — 2026-05-30
+
+### Fixed
+- `hooks/format-on-edit.sh` (new) replaces the inline Biome formatter in the
+  `PostToolUse` hook. It is now repo-aware: Prettier when the repo configures it
+  (`.prettierrc*` / `prettier.config.*` / a `"prettier"` key or dependency in
+  `package.json`), Biome only when `biome.json` is present and Prettier is not,
+  and nothing for repos that configure no JS/TS formatter. Formatters run from
+  the repo root so they respect the repo's own config. Fixes the previous hook
+  reformatting Prettier repos with Biome defaults (tabs/semicolons/double-quotes).
+
 ## [1.0.1] — 2026-05-30
 
 ### Added
@@ -74,5 +85,6 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+[1.0.2]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.0.2
 [1.0.1]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.0.0
