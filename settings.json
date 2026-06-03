@@ -9,11 +9,7 @@
       "Bash(ast-grep:*)",
       "Bash(sg:*)",
       "Bash(rg:*)",
-      "Bash(fzf:*)",
-      "mcp__plugin_context-mode_context-mode__ctx_execute",
-      "mcp__plugin_context-mode_context-mode__ctx_execute_file",
-      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
-      "mcp__plugin_context-mode_context-mode__ctx_search"
+      "Bash(fzf:*)"
     ],
     "defaultMode": "auto"
   },
@@ -32,10 +28,6 @@
     "SessionStart": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "\"/Users/arkashjain/.claude/hooks/context-mode-cache-heal.mjs\""
-          },
           {
             "type": "command",
             "command": "REPO=$(git remote -v 2>/dev/null | head -1 | awk '{print $2}' | sed 's|.*[:/]||; s|\\.git$||'); BRANCH=$(git branch --show-current 2>/dev/null); DIR=$(pwd); if [ -n \"$REPO\" ]; then MSG=\"Current repo: $REPO | branch: ${BRANCH:-detached} | dir: $DIR\"; else MSG=\"Not in a git repo. Working dir: $DIR\"; fi; jq -nc --arg ctx \"$MSG\" '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:$ctx}}'",
@@ -117,7 +109,7 @@
   },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true,
-    "context-mode@context-mode": true,
+    "context-mode@context-mode": false,
     "code-review@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "feature-dev@claude-plugins-official": true,
@@ -132,16 +124,7 @@
     "security-guidance@claude-plugins-official": true,
     "vercel@claude-plugins-official": true
   },
-  "extraKnownMarketplaces": {
-    "context-mode": {
-      "source": {
-        "source": "github",
-        "repo": "mksglu/context-mode"
-      },
-      "autoUpdate": true
-    }
-  },
-  "effortLevel": "medium",
+  "effortLevel": "xhigh",
   "tui": "fullscreen",
   "skipWorkflowUsageWarning": true,
   "theme": "dark",
