@@ -140,11 +140,11 @@
       "autoUpdate": true
     }
   },
-  "effortLevel": "xhigh",
+  "effortLevel": "medium",
+  "tui": "fullscreen",
   "skipWorkflowUsageWarning": true,
   "theme": "dark",
   "editorMode": "normal",
   "skipAutoPermissionPrompt": true,
-  "useAutoModeDuringPlan": true,
-  "tui": "fullscreen"
+  "useAutoModeDuringPlan": true
 }
