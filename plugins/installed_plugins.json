@@ -136,9 +136,16 @@
         "lastUpdated": "2026-06-02T23:32:03.198Z",
         "gitCommitSha": "4926e8fe22ffb6184feaa2e8f8d78030d721a00d"
       }
+    ],
+    "vercel@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/vercel/0.43.0",
+        "version": "0.43.0",
+        "installedAt": "2026-06-03T17:35:52.826Z",
+        "lastUpdated": "2026-06-03T17:35:52.826Z",
+        "gitCommitSha": "6e51924cb249e2941de005d59f1ac6f768477b98"
+      }
     ]
-  },
-  "enabledPlugins": {
-    "context-mode@context-mode": true
   }
 }
