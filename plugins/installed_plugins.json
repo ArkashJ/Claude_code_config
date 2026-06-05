@@ -10,44 +10,24 @@
         "lastUpdated": "2026-05-03T02:17:51.075Z"
       }
     ],
-    "context-mode@context-mode": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/context-mode/context-mode/1.0.162",
-        "version": "1.0.162",
-        "installedAt": "2026-05-03T23:10:29.570Z",
-        "lastUpdated": "2026-06-03T16:02:56.780Z",
-        "gitCommitSha": "2a226dc1faa88395c2252a188f23fcd4f5430115"
-      }
-    ],
     "code-review@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/768928d2909d",
-        "version": "768928d2909d",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/f5e189187684",
+        "version": "f5e189187684",
         "installedAt": "2026-05-04T05:49:41.247Z",
-        "lastUpdated": "2026-06-03T17:58:30.790Z",
-        "gitCommitSha": "768928d2909d98843440bb06ace08666e7207db9"
-      }
-    ],
-    "superpowers@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/superpowers/5.1.0",
-        "version": "5.1.0",
-        "installedAt": "2026-05-04T06:44:13.966Z",
-        "lastUpdated": "2026-05-05T14:32:22.367Z",
-        "gitCommitSha": "e7a2d16476bf042e9add4699c9d018a90f86e4a6"
+        "lastUpdated": "2026-06-03T21:43:40.634Z",
+        "gitCommitSha": "f5e1891876842da6285354c5620ac16639855d92"
       }
     ],
     "feature-dev@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/feature-dev/768928d2909d",
-        "version": "768928d2909d",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/feature-dev/f5e189187684",
+        "version": "f5e189187684",
         "installedAt": "2026-05-04T06:44:55.828Z",
-        "lastUpdated": "2026-06-03T17:58:30.791Z",
-        "gitCommitSha": "768928d2909d98843440bb06ace08666e7207db9"
+        "lastUpdated": "2026-06-03T21:43:40.634Z",
+        "gitCommitSha": "f5e1891876842da6285354c5620ac16639855d92"
       }
     ],
     "pyright-lsp@claude-plugins-official": [
@@ -68,35 +48,24 @@
         "installedAt": "2026-05-06T15:10:43.151Z",
         "lastUpdated": "2026-06-02T03:48:39.043Z",
         "gitCommitSha": "2052aa7f7de28124c295df4769fcb3c9aec68628"
-      }
-    ],
-    "skill-creator@claude-plugins-official": [
+      },
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/skill-creator/768928d2909d",
-        "version": "768928d2909d",
-        "installedAt": "2026-05-09T03:46:06.746Z",
-        "lastUpdated": "2026-06-03T17:58:30.789Z",
-        "gitCommitSha": "768928d2909d98843440bb06ace08666e7207db9"
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/f5e189187684",
+        "version": "f5e189187684",
+        "installedAt": "2026-06-05T22:38:10.294Z",
+        "lastUpdated": "2026-06-05T22:38:10.294Z",
+        "gitCommitSha": "f5e1891876842da6285354c5620ac16639855d92"
       }
     ],
     "frontend-design@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/frontend-design/768928d2909d",
-        "version": "768928d2909d",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/frontend-design/f5e189187684",
+        "version": "f5e189187684",
         "installedAt": "2026-05-09T23:05:21.745Z",
-        "lastUpdated": "2026-06-03T17:58:30.791Z",
-        "gitCommitSha": "768928d2909d98843440bb06ace08666e7207db9"
-      }
-    ],
-    "claude-code-setup@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/claude-code-setup/1.0.0",
-        "version": "1.0.0",
-        "installedAt": "2026-05-17T23:01:53.839Z",
-        "lastUpdated": "2026-05-17T23:01:53.839Z"
+        "lastUpdated": "2026-06-03T21:43:40.635Z",
+        "gitCommitSha": "f5e1891876842da6285354c5620ac16639855d92"
       }
     ],
     "claude-md-management@claude-plugins-official": [
@@ -111,20 +80,11 @@
     "commit-commands@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/commit-commands/768928d2909d",
-        "version": "768928d2909d",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/commit-commands/f5e189187684",
+        "version": "f5e189187684",
         "installedAt": "2026-05-21T20:40:54.183Z",
-        "lastUpdated": "2026-06-03T17:58:30.792Z",
-        "gitCommitSha": "768928d2909d98843440bb06ace08666e7207db9"
-      }
-    ],
-    "code-simplifier@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-simplifier/1.0.0",
-        "version": "1.0.0",
-        "installedAt": "2026-05-21T20:41:08.465Z",
-        "lastUpdated": "2026-05-21T20:41:08.465Z"
+        "lastUpdated": "2026-06-03T21:43:40.633Z",
+        "gitCommitSha": "f5e1891876842da6285354c5620ac16639855d92"
       }
     ],
     "security-guidance@claude-plugins-official": [
@@ -136,19 +96,6 @@
         "lastUpdated": "2026-06-02T23:32:03.198Z",
         "gitCommitSha": "4926e8fe22ffb6184feaa2e8f8d78030d721a00d"
       }
-    ],
-    "vercel@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/vercel/0.43.0",
-        "version": "0.43.0",
-        "installedAt": "2026-06-03T17:35:52.826Z",
-        "lastUpdated": "2026-06-03T17:35:52.826Z",
-        "gitCommitSha": "6e51924cb249e2941de005d59f1ac6f768477b98"
-      }
     ]
-  },
-  "enabledPlugins": {
-    "context-mode@context-mode": true
   }
 }
