@@ -1,7 +1,8 @@
 {
   "skillListingBudgetFraction": 0.03,
   "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "PLAYWRIGHT_MCP_HEADLESS": "false"
   },
   "permissions": {
     "allow": [
@@ -80,7 +81,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -qE 'gh pr (create|edit)|git push' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A PR was created/edited or commits were pushed. First check if there is an open PR on the current branch (run: gh pr view --json state -q .state). If state is OPEN, update CHANGELOG.md, README.md, and CLAUDE.md in the repo to reflect this change. If no PR is open, skip silently. House style: simple English, business terms, include ASCII flow diagrams for any process. Skip files that do not exist. Do not create new docs files unless the user asks.\"}}' || true",
+            "command": "jq -r '.tool_input.command' | grep -qE 'gh pr (create|edit)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A PR was created or edited. If a PR is OPEN (gh pr view --json state -q .state) and this change is user-facing or behavioral, add a CHANGELOG.md entry (and update README.md only if it documents the changed surface). House style: simple English, business terms, ASCII flow for any process. Do NOT edit CLAUDE.md (self-modification guarded). Skip missing files; do not create new docs files unless asked.\"}}' || true",
             "timeout": 10,
             "statusMessage": "Checking PR docs..."
           }
@@ -128,9 +129,22 @@
   },
   "effortLevel": "medium",
   "tui": "default",
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
   "skipWorkflowUsageWarning": true,
   "theme": "dark",
   "editorMode": "normal",
   "skipAutoPermissionPrompt": true,
-  "useAutoModeDuringPlan": true
+  "useAutoModeDuringPlan": true,
+  "voiceEnabled": true,
+  "extraKnownMarketplaces": {
+    "compound-engineering-plugin": {
+      "source": {
+        "source": "github",
+        "repo": "EveryInc/compound-engineering-plugin"
+      }
+    }
+  }
 }
