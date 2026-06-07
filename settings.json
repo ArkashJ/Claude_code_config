@@ -73,6 +73,12 @@
             "command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; F=\"$DIR/edit-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ $((N % 14)) -eq 0 ]; then echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"CHECKPOINT (edit #${N} this session): Spawn the feature-dev:code-reviewer subagent now via the Agent tool. Give it: the current diff (git diff HEAD), the task you have been working on, and ask it to flag (1) claim-vs-reality mismatches between what you told the user you did and what the code actually does, (2) drift from the original task, (3) dead or orphaned code. Run in foreground, summarize findings to the user in 3-5 lines, then continue.\\\"}}\"; fi",
             "timeout": 5,
             "statusMessage": "Edit counter..."
+          },
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/hooks/enforce-agnostic.mjs\"",
+            "timeout": 5,
+            "statusMessage": "Checking agnostic contract..."
           }
         ]
       },
@@ -125,8 +131,18 @@
     "frontend-design@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true
+    "security-guidance@claude-plugins-official": true,
+    "compound-engineering@compound-engineering-plugin": true
   },
+  "extraKnownMarketplaces": {
+    "compound-engineering-plugin": {
+      "source": {
+        "source": "github",
+        "repo": "EveryInc/compound-engineering-plugin"
+      }
+    }
+  },
+  "outputStyle": "Proactive",
   "effortLevel": "medium",
   "tui": "default",
   "voice": {
@@ -136,15 +152,12 @@
   "skipWorkflowUsageWarning": true,
   "theme": "dark",
   "editorMode": "normal",
+  "showTurnDuration": true,
+  "terminalProgressBarEnabled": true,
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "useAutoModeDuringPlan": true,
   "voiceEnabled": true,
-  "extraKnownMarketplaces": {
-    "compound-engineering-plugin": {
-      "source": {
-        "source": "github",
-        "repo": "EveryInc/compound-engineering-plugin"
-      }
-    }
-  }
+  "awaySummaryEnabled": false
 }
