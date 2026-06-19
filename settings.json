@@ -54,9 +54,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; find \"$DIR\" -name 'turn-counter-*' -mtime +1 -delete 2>/dev/null; F=\"$DIR/turn-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ \"$N\" -eq 3 ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"You MUST invoke the find-skills skill (using the Skill tool with skill=find-skills) RIGHT NOW before doing any other work. This is a user-configured hook that fires on the 3rd turn of every session. Do not skip this step.\"}}'; fi",
+            "command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; find \"$DIR\" -name 'turn-counter-*' -mtime +1 -delete 2>/dev/null; F=\"$DIR/turn-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ \"$N\" -eq 1 ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"User-configured INNOVATION FAN-OUT hook (fires on the first prompt of the session = the problem statement). Unless this task is trivial (a quick question, a lookup, or a one-line fix), kick off a parallel fan-out BEFORE implementing, to make up for sparse global context and to innovate many times. In ONE message, spawn parallel agents with the Agent tool using model haiku: (a) 3-4 agents each doing a very deep, DIVERGENT brainstorm of the problem statement, each from a different framing (first-principles, constraints and edge-cases, alternative architectures, user/client value); (b) 2-3 agents doing an ADVERSARIAL review of the relevant existing code (fragile assumptions, hidden coupling, what a harsh critic would attack). Run them concurrently. Then synthesize TIGHTLY: gather the distinct innovations and risks, pick the strongest, and fold them into your approach before coding. Do not dump raw agent output; give a short synthesis. If the task is trivial, skip this silently.\"}}'; fi",
             "timeout": 5,
-            "statusMessage": "Checking skill discovery trigger..."
+            "statusMessage": "Innovation fan-out trigger..."
           }
         ]
       }
@@ -73,12 +73,6 @@
           },
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION=$(echo \"$INPUT\" | jq -r '.session_id // \"default\"'); DIR=\"$HOME/.claude/state\"; mkdir -p \"$DIR\"; F=\"$DIR/edit-counter-${SESSION}\"; N=$(cat \"$F\" 2>/dev/null || echo 0); N=$((N + 1)); echo \"$N\" > \"$F\"; if [ $((N % 14)) -eq 0 ]; then echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"CHECKPOINT (edit #${N} this session): Spawn the feature-dev:code-reviewer subagent now via the Agent tool. Give it: the current diff (git diff HEAD), the task you have been working on, and ask it to flag (1) claim-vs-reality mismatches between what you told the user you did and what the code actually does, (2) drift from the original task, (3) dead or orphaned code. Run in foreground, summarize findings to the user in 3-5 lines, then continue.\\\"}}\"; fi",
-            "timeout": 5,
-            "statusMessage": "Edit counter..."
-          },
-          {
-            "type": "command",
             "command": "node \"$HOME/.claude/hooks/enforce-agnostic.mjs\"",
             "timeout": 5,
             "statusMessage": "Checking agnostic contract..."
@@ -90,9 +84,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -qE 'gh pr (create|edit)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A PR was created or edited. If a PR is OPEN (gh pr view --json state -q .state) and this change is user-facing or behavioral, add a CHANGELOG.md entry (and update README.md only if it documents the changed surface). House style: simple English, business terms, ASCII flow for any process. Do NOT edit CLAUDE.md (self-modification guarded). Skip missing files; do not create new docs files unless asked.\"}}' || true",
+            "command": "jq -r '.tool_input.command' | grep -qE 'gh pr (create|edit)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A PR was just created or edited. Confirm the PR is OPEN (gh pr view --json state -q .state), then run the full PR pipeline IN ORDER: (1) run the /pr-review-toolkit:review-pr skill, (2) run the /simplify skill, (3) run the /client-value-maximizer skill, and (4) update the changelog: add a CHANGELOG.md entry for any user-facing or behavioral change (house style: simple English, business terms, ASCII flow for any process), and update README.md only if it documents the changed surface. Do NOT edit CLAUDE.md (self-modification guarded). Skip missing files; do not create new docs files unless asked.\"}}' || true",
             "timeout": 10,
-            "statusMessage": "Checking PR docs..."
+            "statusMessage": "Running PR pipeline..."
           }
         ]
       }
