@@ -5,23 +5,6 @@
       "repo": "anthropics/claude-plugins-official"
     },
     "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/claude-plugins-official",
-    "lastUpdated": "2026-06-07T14:31:38.346Z"
-  },
-  "context-mode": {
-    "source": {
-      "source": "github",
-      "repo": "mksglu/context-mode"
-    },
-    "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/context-mode",
-    "lastUpdated": "2026-06-07T14:31:38.275Z",
-    "autoUpdate": true
-  },
-  "compound-engineering-plugin": {
-    "source": {
-      "source": "github",
-      "repo": "EveryInc/compound-engineering-plugin"
-    },
-    "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/compound-engineering-plugin",
-    "lastUpdated": "2026-06-06T15:46:16.160Z"
+    "lastUpdated": "2026-06-19T02:11:21.083Z"
   }
 }
