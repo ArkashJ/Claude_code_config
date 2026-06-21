@@ -1,11 +1,11 @@
 ---
 name: qa-plan
-description: Use when generating audit-grade QA test plans for a diff, PR, branch, module, release candidate, bug fix, feature, or refactor where test cases, regressions, smoke checks, or exit criteria must be planned from verified source evidence.
+description: Use when generating QA test plans from verified code changes for a diff, PR, branch, module, release candidate, bug fix, feature, or refactor; context maps, dependency graphs, adversarial review notes, and fix recommendations are included only as QA-plan support.
 ---
 
 # QA Plan Generator
 
-Generate audit-grade QA plans from real code changes. The plan must be evidence-first: every risk, test case, regression, caveat, and exit criterion traces back to verified source context or is explicitly marked as a low-confidence inference.
+Generate audit-grade QA plans from real code changes. The plan must be evidence-first and graph-aware: every risk, test case, regression, caveat, diagram edge, fix recommendation, and exit criterion traces back to verified source context or is explicitly marked as a low-confidence inference.
 
 ## Use Cases
 
@@ -14,6 +14,7 @@ Generate audit-grade QA plans from real code changes. The plan must be evidence-
 - PR or branch review: turn code diff + project context into an executable QA plan.
 - Module audit: focus on a directory or feature area while still tracing adjacent impact.
 - Release readiness: consolidate a larger diff into the highest-risk areas and clear exit criteria.
+- Adversarial review: challenge the draft QA plan for missing consumers, unsupported graph edges, weak evidence, and under-tested risks.
 
 ## Input Modes
 
@@ -35,6 +36,8 @@ If no diff, matching module, or meaningful comparison exists, stop with: `No cha
 - Do not include generic QA cases unless they are tied to a changed area, known project hotspot, or dependency trace.
 - Prefer project terminology over framework examples. Infer the stack from repo files when docs are absent.
 - Keep conditional sections conditional. Security, multi-tenant, offline, sync, performance, and migration checks only appear when evidence warrants them.
+- Build a global-enough context graph, not an exhaustive repo transcript. Prefer indexes, dependency edges, entrypoints, and ownership boundaries over reading every file.
+- Do not silently fix the target repo. Produce a `Fix Queue` with evidence and recommended action; only mutate code if the user explicitly asks for fix implementation after the QA plan.
 
 ## Workflow
 
@@ -103,18 +106,48 @@ Evidence rules:
 - `Used For` links evidence to risk rows, test cases, or caveats.
 - `Confidence` is `high` when verified directly, `medium` when inferred from nearby code/docs, and `low` when plausible but not fully traceable.
 
-### Step 3: Discover Project Context
+### Step 3: Build The Global Context Map
 
-Read only context that affects the QA plan:
+Gather scoped global context before tracing blast radius. The goal is to understand enough system shape to validate the changed areas and two-hop blast radius, not to summarize every file.
+
+Default context budget:
+
+- Read docs/manifests/configs that define architecture or test commands.
+- Inspect changed files plus direct references, entrypoints, tests, and boundary files needed to prove the blast radius.
+- Stop broad context gathering after roughly 25 files or 20 minutes unless the diff is release-scale, security-sensitive, or the user explicitly requests deeper audit.
+- If the cap is hit, group remaining unknowns by subsystem and record them in `Analysis Caveats` instead of continuing to read the whole repo.
 
 - root and module `CLAUDE.md`, `AGENTS.md`, README, architecture docs, release notes, and changelog entries
 - package/dependency manifests: `package.json`, `pyproject.toml`, `requirements.txt`, `Gemfile`, `go.mod`, `Cargo.toml`, etc.
 - route definitions, API schemas, serializers, controllers, handlers, jobs, middleware, auth policy, permission filters, and feature flags touched by the diff
 - existing tests and naming conventions for changed modules
 
+Use the strongest context source available:
+
+- **Language indexes / LSP**: references, definitions, implementations, type hierarchy, call hierarchy, route/schema symbols. Use language servers such as TypeScript/JavaScript, Pyright, gopls, rust-analyzer, jdtls, C# Roslyn, or IDE indexes opportunistically when the environment exposes them.
+- **Build/tool indexes**: `go list`, `cargo metadata`, existing framework route listings, existing OpenAPI/GraphQL schemas, test discovery, dependency manifests.
+- **Search fallback**: `rg -n`, imports, function names, route paths, event names, table/model names, and test names.
+- **Context scouts**: when subagents or smaller/cheaper models are available, use read-only scouts for independent slices: docs/architecture, API/routes, data model, UI/mobile consumers, tests, auth/security, background jobs, and external integrations. If scouts are unavailable, do the same passes sequentially.
+
+Index safety rules:
+
+- If an index or LSP is unavailable, stale, incomplete, or too expensive to start, fall back to static search and lower call-graph confidence.
+- Do not run commands that install dependencies, download packages, generate clients, rewrite files, run migrations, or mutate the repo unless the user explicitly approves that action.
+- Build commands used only for read-only discovery must be project-native and safe to run in the current environment; otherwise record the limitation in `Analysis Caveats`.
+
+Create a context map:
+
+```markdown
+## Global Context Map
+
+| Subsystem | Entrypoints | Data / State | External Boundaries | Auth / Tenant Boundary | Tests | Evidence | Confidence |
+| --------- | ----------- | ------------ | ------------------- | ---------------------- | ----- | -------- | ---------- |
+| Billing API | `api/billing/*` | invoices, ledger rows | Stripe webhook | org-scoped route guard | `billing/*.test.*` | E1, E2, E8 | high |
+```
+
 When docs are absent, label the context as `INFERRED` and lower confidence for architecture claims that are not directly verified.
 
-### Step 4: Trace Blast Radius
+### Step 4: Trace Blast Radius And Draw The Graphs
 
 Trace two hops from each changed area. Use project-native search first (`rg`, type references, route maps, imports, tests). Group large diffs by feature/module before tracing.
 
@@ -135,6 +168,31 @@ Hop definitions:
 - **Hop 2**: indirect downstream readers, reports, exports, notifications, sync paths, analytics, billing, search indexes, cached summaries, and historically buggy adjacent areas.
 
 If dynamic dispatch, reflection, codegen, generated clients, or framework magic prevents complete tracing, record the gap in `Analysis Caveats` and add a targeted exploratory test when the risk is material.
+
+Create both Mermaid and ASCII graphs. Keep graphs readable: cap Mermaid at the top 20-25 nodes by risk and evidence strength, then summarize omitted low-risk nodes in text.
+
+```mermaid
+flowchart LR
+  C1["Changed: validator\nE1"] --> H1["API handler\nE3"]
+  H1 --> H2["Mobile client\nE5"]
+  H1 --> H3["Report export\nE7"]
+  H3 -. "inferred risk via E7, medium" .-> R1["Regression risk R3"]
+```
+
+```text
+ASCII FLOW
+[Changed validator E1]
+  -> [API handler E3]
+      -> [Mobile client E5]
+      -> [Report export E7] ? inferred risk via E7, medium -> [R3 regression]
+```
+
+Diagram rules:
+
+- Every graph edge must cite a direct `Evidence ID` or an inference-basis `Evidence ID`. If no evidence item supports the edge, omit it from the graph and list it in `Analysis Caveats`.
+- Mermaid graphs are for audit readability; ASCII flows are the terminal-safe fallback.
+- Use Mermaid `flowchart` for dependency maps and `sequenceDiagram` for request, sync, webhook, job, or user flows.
+- Use one diagram per high-risk flow rather than one giant unreadable system graph.
 
 ### Step 5: Score Risk
 
@@ -190,7 +248,26 @@ Overall risk level is the highest risk score:
 
 Save the plan to `docs/QA-PLAN-{YYYY-MM-DD}-{slug}.md` unless the user asks for inline output only. Create `docs/` if needed.
 
-Use this structure:
+Choose an output detail mode before writing:
+
+- **Compact mode**: default for small low-risk diffs: 1-3 changed files, no auth/tenant boundary, no destructive write path, no release/security/compliance/data-integrity trigger, and no explicit request for a full audit.
+- **Full audit mode**: use when the change is high-risk, release-scale, security-sensitive, data-integrity-sensitive, cross-module, has low-confidence graph edges, or the user asks for deep/global/audit coverage.
+
+Compact mode must use this shortened structure:
+
+1. **Header / Metadata**
+2. **Change Summary**
+3. **Evidence Ledger**
+4. **Compact Context & Graph**
+   - 1-3 context rows plus one small Mermaid or ASCII graph; state why no runtime graph applies if none is warranted
+5. **Risk & Test Matrix**
+   - combine risk rows and test cases; every row still needs evidence and confidence
+6. **Adversarial Review / Fix Queue**
+   - 2-5 bullets; state `No fix recommendations` when empty
+7. **Smoke Checklist**
+8. **Analysis Caveats & Exit Criteria**
+
+Full audit mode must use this structure:
 
 1. **Header / Metadata**
    - plan ID, date, trigger, branch/PR/input, risk level, platform, changed file count, modules affected, project context source (`VERIFIED` or `INFERRED`)
@@ -198,26 +275,40 @@ Use this structure:
    - concise narrative plus the change inventory
 3. **Evidence Ledger**
    - required for every plan; keep it short for small diffs, but preserve the table shape
-4. **Scope & Out Of Scope**
+4. **Global Context Map**
+   - subsystem table covering entrypoints, state, external boundaries, auth/tenant boundaries, tests, evidence, and confidence
+5. **Scope & Out Of Scope**
    - list tested blast-radius areas and major excluded areas considered
-5. **Blast Radius**
+6. **Blast Radius**
    - two-hop table with evidence and confidence
-6. **Risk Assessment**
+7. **Mermaid And ASCII Graphs**
+   - dependency graph plus one high-risk flow graph when applicable; include ASCII fallback
+8. **Risk Assessment**
    - risk rows with evidence, confidence, and rationale
-7. **Test Cases By Feature Area**
+9. **Test Cases By Feature Area**
    - Hop 0 and Hop 1 tests grouped by behavior or subsystem
-8. **Regression Test Cases**
+10. **Regression Test Cases**
    - Hop 2 tests only; known hotspots at Hop 0 or Hop 1 belong in the relevant feature-area section with `Type = regression`
-9. **Edge Cases & Negative Tests**
+11. **Edge Cases & Negative Tests**
    - cross-cutting boundaries tied to risk rows
-10. **Conditional Checks**
+12. **Conditional Checks**
    - only include warranted security, multi-tenant, offline/sync, performance, migration, observability, or compatibility checks
-11. **Smoke Test Checklist**
+13. **Adversarial Review Notes**
+   - what the reviewer challenged, what changed in response, and unresolved concerns
+14. **Fix Queue**
+   - evidence-backed recommended fixes, owners/areas, risk, and whether implementation needs explicit user approval
+15. **Smoke Test Checklist**
    - 5-15 fast checks drawn from P0/P1 coverage
-12. **Analysis Caveats**
+16. **Analysis Caveats**
    - required when any context is inferred, unavailable, or unverified
-13. **Exit Criteria**
+17. **Exit Criteria**
    - concrete pass/fail gates before ship
+
+Detail level within each mode:
+
+- Small low-risk diffs: use compact mode; do not emit the full 17-section structure.
+- Medium/high-risk diffs: include full context map rows for affected subsystems, Mermaid + ASCII dependency views, adversarial findings, and a populated Fix Queue when evidence warrants it.
+- Release/security/data-integrity diffs: prefer thorough output, but still cap graphs and test cases using Scale Controls.
 
 #### Test Case Table
 
@@ -254,21 +345,68 @@ Coverage depth:
 - Standard risks: 1-2 tests.
 - Smoke risks: smoke checklist only unless historically fragile.
 
-### Step 7: Self-Review Before Finalizing
+### Step 7: Run Adversarial Review
+
+Before finalizing the QA plan, run an adversarial review against the draft. Use a separate reviewer, subagent, or smaller model when available; otherwise perform a distinct self-review pass.
+
+Adversarial reviewer prompt shape:
+
+```text
+Review this QA plan adversarially. Find unsupported evidence, missing dependency edges,
+generic tests, under-tested high-risk areas, graph contradictions, missing security or data
+integrity checks, and fix recommendations that should not be implemented without explicit approval.
+Return findings by severity with Evidence IDs, Risk IDs, and suggested plan edits.
+```
+
+The review must challenge:
+
+- missing global context: entrypoints, data stores, external systems, auth/tenant boundaries, jobs, caches, generated clients, and tests
+- graph correctness: unsupported Mermaid/ASCII edges, too-large graphs, omitted high-risk nodes
+- evidence quality: stale refs, inferred facts marked high confidence, file references without line verification
+- risk coverage: any high score without P0/P1 tests, any low-confidence high-impact area without exploratory QA
+- fix behavior: any instruction that would mutate code without explicit user approval
+
+Apply valid findings to the QA plan before final output. Put unresolved findings in `Adversarial Review Notes` and `Analysis Caveats`.
+
+### Step 8: Build The Fix Queue
+
+Create a `Fix Queue` when the evidence reveals likely defects, missing tests, weak observability, unsafe rollout gaps, or documentation drift.
+
+```markdown
+## Fix Queue
+
+| Fix ID | Finding | Evidence | Risk ID | Risk | Recommended Action | Mutates Code? | Approval Needed |
+| ------ | ------- | -------- | ------- | ---- | ------------------ | ------------- | --------------- |
+| F1 | Tenant filter missing on export path | E9 | R2 | CRITICAL | Add org-scoped filter and regression test | yes | yes |
+```
+
+Rules:
+
+- The QA skill may recommend fixes, create a prioritized queue, or generate a separate implementation plan.
+- Every Fix Queue item must map to at least one `Evidence ID` and one `Risk ID` from the diff or blast-radius analysis.
+- Unrelated improvements belong in `Out Of Scope`, not the Fix Queue.
+- The QA skill must not apply patches, run migrations, or change product code unless the user explicitly asks for fix implementation.
+- If the user asks to fix issues after the QA plan, switch to the relevant implementation/debugging workflow and keep the QA plan as input evidence.
+
+### Step 9: Self-Review Before Finalizing
 
 Run this review before reporting completion:
 
 - [ ] Every risk row has evidence, rationale, and confidence.
 - [ ] Every test case maps to at least one `Risk ID` and one `Evidence ID` or verified source reference.
+- [ ] The Global Context Map identifies entrypoints, data/state, external boundaries, auth/tenant boundaries, tests, evidence, and confidence.
+- [ ] Mermaid and ASCII diagrams include evidence-backed edges and are small enough to read.
+- [ ] Adversarial review was performed, valid findings were applied, and unresolved findings are visible.
+- [ ] The Fix Queue recommends fixes without silently mutating code.
 - [ ] P0 tests directly cover the changed behavior or highest-impact failure mode.
 - [ ] The Regression Test Cases section covers Hop 2 areas only; Hop 0/Hop 1 hotspot regressions stay in their feature-area sections.
 - [ ] Security, tenant, offline, migration, performance, and compatibility sections appear only when evidence warrants them.
 - [ ] Analysis caveats disclose missing docs, missing `gh`, dynamic dispatch, generated code, clean-tree fallback, or low-confidence traces.
 - [ ] Smoke checklist has 5-15 actions and each is executable in under 2 minutes.
 - [ ] Exit criteria are concrete and project-specific.
-- [ ] No placeholders remain: `TBD`, `TODO`, `{example}`, empty cells, or fabricated file references.
+- [ ] No placeholders remain: `TBD`, `TODO`, `{example}`, empty cells, unsupported graph edges, or fabricated file references.
 
-### Step 8: Report Summary
+### Step 10: Report Summary
 
 After saving the QA plan, print:
 
@@ -277,6 +415,9 @@ QA plan saved: docs/QA-PLAN-YYYY-MM-DD-slug.md
 Risk level: <LOW|MEDIUM|HIGH|CRITICAL>
 Test cases: <total> (P0 <n>, P1 <n>, P2 <n>, P3 <n>)
 Evidence: <n> items (<high n>, <medium n>, <low n>)
+Graphs: <n Mermaid, n ASCII>
+Adversarial review: <applied n, unresolved n>
+Fix queue: <n recommended fixes, n requiring approval>
 Modules covered: <list>
 Caveats: <none|summary>
 ```
@@ -285,6 +426,9 @@ Caveats: <none|summary>
 
 - If the diff touches more than 30 blast-radius areas, group by module and keep the top 15 risk rows.
 - If the plan would exceed 60 test cases, drop P3 tests and condense P2 to smoke/regression checks.
+- If the global context graph would exceed 25 nodes, keep only top-risk nodes and collapse the rest by subsystem.
+- If context gathering reaches the default budget, stop expanding and record remaining unknowns as caveats.
+- If a low-risk plan would become longer than the changed code warrants, use compact sections and prioritize evidence, risk, graph summary, smoke checks, and caveats.
 - If evidence is weak but impact is high, keep the risk row, mark confidence low, and add an exploratory QA task.
 - If the request is explicitly time-boxed, keep the evidence ledger and risk table but reduce test count by priority: P0 first, then P1.
 
@@ -298,7 +442,10 @@ Caveats: <none|summary>
 | Over-including security/offline sections | Include them only when diff or blast radius touches those paths |
 | Hiding uncertainty | Add `Analysis Caveats` and lower confidence |
 | Producing a long generic matrix | Delete tests that do not map to a risk row and evidence |
+| Reading the whole repo without structure | Build a context graph from entrypoints, indexes, and dependency edges |
+| Drawing unsupported diagrams | Put an `Evidence ID` on every meaningful edge or mark the edge low confidence |
+| Letting QA mutate code | Use `Fix Queue`; require explicit approval before implementation |
 
 ## Core Principle
 
-Audit-grade QA plans are not lists of things that might be tested. They are traceable arguments: the code changed here, evidence shows these consumers and risks, so these tests are the minimum defensible coverage.
+Audit-grade QA plans are not lists of things that might be tested. They are traceable arguments and readable maps: the code changed here, the context graph shows these consumers and risks, the adversarial review challenged the weak spots, so these tests and fix recommendations are the minimum defensible coverage.
