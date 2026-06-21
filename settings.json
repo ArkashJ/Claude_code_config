@@ -132,7 +132,7 @@
   },
   "extraKnownMarketplaces": {},
   "outputStyle": "Proactive",
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "awaySummaryEnabled": false,
   "tui": "default",
   "voice": {
