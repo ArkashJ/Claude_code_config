@@ -6,6 +6,36 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.0] — 2026-06-22
+
+### Added
+- `hooks/cleanup.sh` (new) + a `SessionStart` hook — periodic housekeeping that
+  keeps `~/.claude` from ballooning over weeks of use. Cache and scratch files
+  older than 14 days are removed; plan files older than 36 hours are removed.
+  Versioned config is never touched. The cache sweep self-throttles to once
+  every 6 hours; the plans sweep runs each session.
+
+  ```
+  swept (disposable)                     never touched (versioned)
+  -----------------------------------    -------------------------------
+  cache/ paste-cache/ image-cache/   ->  plugins/   skills/
+  shell-snapshots/ file-history/         settings.json   hooks/
+  backups/   *-cache.json   (>14 days)   commands/  rules/  agents/
+  plans/                    (>36 hours)  statusline.sh   sync.sh
+  ```
+
+### Changed
+- `settings.json` — added `aws-core@claude-plugins-official` to `enabledPlugins`
+  so the AWS plugin survives a clean reinstall restore (keep-all union; no
+  plugin is ever dropped on restore).
+- `skills/` — materialized 11 skills that were committed as symlinks into
+  `~/.agents/skills/` (docx, xlsx, vocabulary, find-skills, playwright-cli,
+  brandkit, mcp-builder, high-end-visual-design, design-taste-frontend,
+  redesign-existing-projects, full-output-enforcement) so they restore on any
+  machine, and added `grill-me`. Eight skills whose source is absent on this
+  machine remain symlinks and must be re-materialized from the machine that has
+  them.
+
 ## [1.0.2] — 2026-05-30
 
 ### Fixed
@@ -85,6 +115,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+[1.1.0]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.1.0
 [1.0.2]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.0.2
 [1.0.1]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ArkashJ/Claude_code_config/releases/tag/v1.0.0

@@ -47,6 +47,16 @@
             "command": "\"/Users/arkashjain/.claude/hooks/context-mode-cache-heal.mjs\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/cleanup.sh\"",
+            "timeout": 15,
+            "statusMessage": "Housekeeping: caches / plans..."
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -128,7 +138,8 @@
     "claude-md-management@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
-    "gopls-lsp@claude-plugins-official": true
+    "gopls-lsp@claude-plugins-official": true,
+    "aws-core@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {},
   "outputStyle": "Proactive",
