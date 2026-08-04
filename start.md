@@ -19,11 +19,19 @@ where it stopped, and ask whether to resume it or start fresh.
 
 ## 2. Enumerate, then DIVE on the intersection
 
-When I give you the task, first list every source you will draw from WITH COUNTS (N open PRs and
-their review comments, N issues, N docs files, changelog entries since last touchpoint,
-deployed/runtime state if relevant). This list is the completeness contract: any "done /
-verified / covered everything" claim must cite it and NAME what was not read. "Thorough" means
-the enumeration is exhausted, not an effort level.
+The FIRST action on any task — even one that opens with an urgent imperative; do the single
+urgent step, then enumerate before anything else — is to post the source list as a numbered
+enumeration WITH COUNTS (N open PRs and their review comments, N issues, N docs files,
+changelog entries since last touchpoint, deployed/runtime state if relevant). This applies to
+the next task message after /start, not just this turn. The list is the completeness contract:
+any "done / verified / covered everything" claim must cite it and NAME what was not read.
+"Thorough" means the enumeration is exhausted, not an effort level.
+
+Truth does not only live in this repo. The enumeration must also cover, when they exist:
+connected MCP sources (Slack, Drive, Notion — search them, don't assume), sibling project
+directories, client-sent document folders (drive dumps, specs, SOW/roadmap/contract docs), and
+platform CLIs. If the task involves client requirements and you don't know where their documents
+live, ask ONCE: "where else does truth live for this?" — then enumerate what I name.
 
 Then go DEEP on everything that intersects the task — and only that. Dispatch cheap-model
 subagents (so the reading costs their context, not yours) to fetch and distill:
@@ -37,6 +45,10 @@ Each subagent returns a distilled brief (decisions made, open questions, gotchas
 numbers), not raw dumps. Depth is proportional to intersection with the task; the rest of the
 repo's history stays at count-level. If the ground is genuinely unfamiliar, run /map instead of
 crawling inline.
+
+Tripwire: more than ~10 exploration commands inline in the main thread means you are burning
+the orchestrator's context on reading — stop and dispatch subagents. Main-thread context is for
+deciding and editing, not for searching.
 
 ## 3. Isolate, commit, push, checkpoint — continuously, without being asked
 
