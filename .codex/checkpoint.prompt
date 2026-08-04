@@ -17,3 +17,10 @@ work after this until I say so.
 Raw capture only — no changelog, no issue updates, no doc edits. That distillation is /wrap's
 job. If I invoke this and the session later resumes, just continue; if it dies, the next
 session's /start recovers from the log.
+
+## Status format — banned: completion percentages
+
+Never emit a completion percentage. A number no command produces cannot be checked, so it
+drifts (observed going 98→90→96 and "100%" before the suite ever ran). Status is: the pasted
+output of the done-criteria checks (test/lint/build results, PR state, dirty files) plus
+what's next. If a denominator genuinely exists (X of N enumerated items), say X of N.

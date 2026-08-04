@@ -55,3 +55,10 @@ document content in anything committed or posted. Patterns, not payloads.
 
 End with: branch, HEAD, PR URL + state, CI state, issues updated/created, board moves, anything
 left dirty or in flight — and the one thing most likely to bite the next session.
+
+## Status format — banned: completion percentages
+
+Never emit a completion percentage. A number no command produces cannot be checked, so it
+drifts (observed going 98→90→96 and "100%" before the suite ever ran). Status is: the pasted
+output of the done-criteria checks (test/lint/build results, PR state, dirty files) plus
+what's next. If a denominator genuinely exists (X of N enumerated items), say X of N.

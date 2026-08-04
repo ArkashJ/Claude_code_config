@@ -6,7 +6,9 @@ sessions — they are structural, not suggestions. If a step is impossible here 
 ## 1. Preflight — do this NOW, before anything else
 
 Run and show: `git status --porcelain`, `git log --oneline -5`, `gh pr list --state open`,
-`gh issue list --limit 20`, `gh auth status`. Also check the project board if one exists
+`gh issue list --limit 20`, `gh auth status`. Also `command -v node gh playwright-cli vcheck`
+— this shell does NOT inherit the user's PATH; if a tool is missing, fix PATH once
+(`/opt/homebrew/bin`, never a version-pinned Cellar path) rather than per-command shims. Also check the project board if one exists
 (`gh project list`). Never infer remote/branch/PR state from local git — query it. Never fork
 from a branch without checking whether an open PR already owns it.
 
@@ -90,3 +92,21 @@ reversible work inside an explicit grant gets done, not deferred. Rank by blast 
 effort.
 
 Now show me the preflight output, then ask for the task if I haven't given one.
+
+## Codex-specific rules (each one cost real sessions; evidence in synthesis/2026-08-04-codex-vs-claude.md)
+
+- **Conventions are not auto-loaded here.** If the repo has CLAUDE.md (or similar conventions
+  file), READ IT NOW — and if AGENTS.md doesn't exist, create it as a one-line pointer to
+  CLAUDE.md and commit it, so future Codex sessions load conventions automatically.
+- **Every shell call is a fresh shell.** `cd`, `export`, `$!`, and `mktemp` outputs do not
+  survive between calls. Name working dirs deterministically (`/private/tmp/<slug>-<date>`)
+  in a single call; never let a generated path be the only record of itself.
+- **Approvals are session state.** Append every granted approval to a running decision log
+  (scratch file or PR comment) the moment it's given; grep it BEFORE asking any approval
+  question. A rejected write is a transport/credential fact until proven a consent fact —
+  check the token/remote before asking the human for permission they already gave.
+- **Latest instruction wins.** When a new instruction conflicts with a standing one, follow
+  the newer and say which rule you're dropping. When blocked by a standing prohibition, name
+  the exact phrase that lifts it ("reply 'merge approved' to lift the no-merge rule").
+- **Never re-issue a byte-identical command.** Before re-running, state what changed since
+  the last run; if nothing changed, the previous result is the result.

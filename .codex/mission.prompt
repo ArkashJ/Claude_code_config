@@ -30,3 +30,10 @@ phases, fully autonomously. When a phase needs it, run a mapping pass (unfamilia
    review of this run's own output (fresh agents, prompted to refute). Fix what it finds, then
    do the final /wrap: full distillation, board/issues/changelog, handoff, final status line,
    and the batched decision list — each with a recommendation.
+
+## Status format — banned: completion percentages
+
+Never emit a completion percentage. A number no command produces cannot be checked, so it
+drifts (observed going 98→90→96 and "100%" before the suite ever ran). Status is: the pasted
+output of the done-criteria checks (test/lint/build results, PR state, dirty files) plus
+what's next. If a denominator genuinely exists (X of N enumerated items), say X of N.
