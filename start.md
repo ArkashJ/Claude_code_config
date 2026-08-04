@@ -17,13 +17,26 @@ Check for a dead predecessor: any open draft PR with a "Checkpoint log" comment 
 handoff means a session died before /wrap. Read its checkpoint log, report what it was doing and
 where it stopped, and ask whether to resume it or start fresh.
 
-## 2. Enumerate — name the corpus before working
+## 2. Enumerate, then DIVE on the intersection
 
 When I give you the task, first list every source you will draw from WITH COUNTS (N open PRs and
 their review comments, N issues, N docs files, changelog entries since last touchpoint,
 deployed/runtime state if relevant). This list is the completeness contract: any "done /
 verified / covered everything" claim must cite it and NAME what was not read. "Thorough" means
 the enumeration is exhausted, not an effort level.
+
+Then go DEEP on everything that intersects the task — and only that. Dispatch cheap-model
+subagents (so the reading costs their context, not yours) to fetch and distill:
+- PRs (open AND recently merged) touching the same files/feature: full bodies, review threads,
+  inline comments — `gh pr list --json number,files`, `gh pr view <n> --comments`. Review
+  threads carry the "why" that prevents re-litigating settled decisions.
+- Issues whose bodies mention the task's feature/files: `gh issue view <n> --comments`.
+- The predecessor session's Checkpoint log and handoff comments on any related PR.
+- Changelog/commits touching the same paths: `git log --oneline -20 -- <paths>`.
+Each subagent returns a distilled brief (decisions made, open questions, gotchas — with PR/issue
+numbers), not raw dumps. Depth is proportional to intersection with the task; the rest of the
+repo's history stays at count-level. If the ground is genuinely unfamiliar, run /map instead of
+crawling inline.
 
 ## 3. Isolate, commit, push, checkpoint — continuously, without being asked
 
