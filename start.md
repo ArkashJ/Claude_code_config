@@ -9,8 +9,10 @@ sessions — they are structural, not suggestions. If a step is impossible here 
 ## 1. Preflight — do this NOW, before anything else
 
 Run and show: `git status --porcelain`, `git log --oneline -5`, `gh pr list --state open`,
-`gh issue list --limit 20`, `gh auth status`. Also check the project board if one exists
-(`gh project list`). Never infer remote/branch/PR state from local git — query it. Never fork
+`gh issue list --limit 20`, `gh auth status`. Check the token's SCOPES against what the task
+will need (merges need `workflow` scope for PRs touching CI files) — a scope gap discovered at
+merge time has already cost a session its endgame. A rejected push/merge is a credential fact
+before it is a consent fact. Also check the project board if one exists (`gh project list`). Never infer remote/branch/PR state from local git — query it. Never fork
 from a branch without checking whether an open PR already owns it.
 
 Check for a dead predecessor: any open draft PR with a "Checkpoint log" comment but no final
