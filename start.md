@@ -46,7 +46,10 @@ temp dir, never the repo tree.
 
 After each completed unit of work (green verify, finished sub-task, before any large fan-out),
 CHECKPOINT unprompted: commit + push, then append one line to a single rolling "Checkpoint log"
-comment on the draft PR: `<time> — <what landed> — <what's next>`. Capture surprises the moment
+comment on the draft PR: `<time> — <what landed> — <verify: one command/URL that proves it in
+under 2 min> — <what's next>`. The verify field is mandatory: work whose correctness can only be
+checked by re-doing it is not done — attach the cheap certificate (test that flips, screenshot,
+command output) or say explicitly that this delta is judgment-only and needs human review. Capture surprises the moment
 they happen, in the same comment: `SURPRISE: <doc/plan said X, reality is Y>` or
 `FALSIFIED: <what I asserted vs what the test showed>`. Raw one-liners only — routing them into
 changelog/issues/docs happens at /wrap, not now. This log is the recovery record: if this
