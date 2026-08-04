@@ -1,0 +1,32 @@
+
+This is an autonomous multi-hour run. Mission: $ARGUMENTS
+
+Execute the /start prompt's instructions first (see prompts/start.md) (preflight, enumeration, working rules — including
+continuous commit/push/checkpoint-log and volunteered status lines). Then run the mission in
+phases, fully autonomously. When a phase needs it, run a mapping pass (unfamiliar ground), a feature/QA loop, or an evidence-first review of your own PRs before calling a phase done.
+
+## Autonomy rules — these are what make hours-long unattended work safe
+
+1. **Phase boundaries are wrap points.** Break the mission into phases up front and post the
+   phase plan to the draft PR. At the END of each phase run the /wrap distillation for that
+   phase (changelog delta, issues/board updates, PR comment with done/not-done/not-read). A run
+   that dies mid-phase loses at most one phase, never the day.
+2. **Never stop to ask mid-run.** Blockers and decisions-that-are-mine get recorded (issue or
+   checkpoint log) with your best recommendation, and you continue with everything not blocked
+   by them. Only when nothing actionable remains do you stop and present the batched questions.
+3. **Self-preserve before limits kill you.** You cannot see spend limits coming, so behave as if
+   the run can be killed at any moment (that is what continuous checkpointing is for). When you
+   notice context pressure, checkpoint immediately, write a continuation prompt INTO the PR
+   (state, next steps, open questions), and either delegate remaining phases to fresh subagents
+   or wrap. Never start a delicate irreversible operation you might not finish.
+4. **Delegate hard, tiered.** This run should be mostly orchestration: haiku lanes for sweeps
+   and summaries, sonnet lanes for well-specified implementation, strongest model for judgment
+   and adversarial verification. Dispatch isolation per /start rule 4. Prefer many small pushed
+   commits from lanes over large unpushed work — unpushed lane work dies with the lane.
+5. **Blast radius still holds.** Merges, deploys, bulk deletes, prod data mutations are NEVER
+   autonomous — queue them as the batched questions at the end, with everything staged so each
+   is one approved command away.
+6. **Adversarial pass before final wrap.** Before ending, run a skeptical
+   review of this run's own output (fresh agents, prompted to refute). Fix what it finds, then
+   do the final /wrap: full distillation, board/issues/changelog, handoff, final status line,
+   and the batched decision list — each with a recommendation.
