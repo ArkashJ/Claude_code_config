@@ -6,7 +6,13 @@ sessions — they are structural, not suggestions. If a step is impossible here 
 ## 1. Preflight — do this NOW, before anything else
 
 Run and show: `git status --porcelain`, `git log --oneline -5`, `gh pr list --state open`,
-`gh issue list --limit 20`, `gh auth status`. Also `command -v node gh playwright-cli vcheck`
+`gh issue list --limit 20`, `gh auth status`. KNOWN ENVIRONMENT FACT: `gh` FAILS inside the
+sandbox on this machine ("invalid token" / "error connecting to api.github.com") because the
+sandbox blocks the network and the macOS keychain where the token lives. This is an artifact,
+not bad credentials — run ALL `gh` commands with escalated (outside-sandbox) execution from the
+first call. Never diagnose it, never ask the human for permission they already gave, never fall
+back to manual pushes; git-over-SSH also works if escalation is unavailable.
+Also `command -v node gh playwright-cli vcheck`
 — this shell does NOT inherit the user's PATH; if a tool is missing, fix PATH once
 (`/opt/homebrew/bin`, never a version-pinned Cellar path) rather than per-command shims. Also check the project board if one exists
 (`gh project list`). Never infer remote/branch/PR state from local git — query it. Never fork
