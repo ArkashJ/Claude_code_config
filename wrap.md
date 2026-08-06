@@ -28,6 +28,8 @@ This is the memory the next session's preflight picks up. No loose handoff markd
 
 Derive the entry from commits/merged PRs since the last changelog entry — titles and diffs, not
 memory. Conclusions only ("added X", "fixed Y because Z"), no state ("currently at version N").
+Write it into `CHANGELOG.md` at the repo root (create the file if the repo lacks one) and commit
+it with the wrap — a changelog that lives only in a PR comment is not a changelog.
 
 ## 4. Issues and board
 
@@ -58,3 +60,9 @@ document content in anything committed or posted. Patterns, not payloads.
 
 End with: branch, HEAD, PR URL + state, CI state, issues updated/created, board moves, anything
 left dirty or in flight — and the one thing most likely to bite the next session.
+
+Any "deployed / live / fixed in prod" claim in this line requires a fresh readback from the
+serving system IN THIS CLOSING TURN: curl the live URL and check for the NEW behavior —
+checking for absence of the old string passes on any error page (c3cabb5f: "Fixed and live"
+while the server held old pages in memory; cbfc486c: three prod deploys stalled silently while
+CLI exit and PR state said done, and the human had to ask "was this pr deployed??").
