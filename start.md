@@ -8,7 +8,10 @@ sessions — they are structural, not suggestions. If a step is impossible here 
 
 ## 1. Preflight — do this NOW, before anything else
 
-Run and show: `git status --porcelain`, `git log --oneline -5`, `gh pr list --state open`,
+`git fetch --all --prune` FIRST — `git log` on an unfetched clone has produced a wrong state
+assessment twice (81175d0e: caught by fetching before concluding; cbfc486c: not caught, local
+main 10 commits behind, every early conclusion wrong).
+Then run and show: `git status --porcelain`, `git log --oneline -5`, `gh pr list --state open`,
 `gh issue list --limit 20`, `gh auth status`. Check the token's SCOPES against what the task
 will need (merges need `workflow` scope for PRs touching CI files) — a scope gap discovered at
 merge time has already cost a session its endgame. A rejected push/merge is a credential fact
@@ -103,5 +106,17 @@ Merges, deploys, bulk deletes, force pushes, and production data mutations each 
 per-action confirmation naming the action — no prior broad grant covers them. Conversely, cheap
 reversible work inside an explicit grant gets done, not deferred. Rank by blast radius, not
 effort.
+
+The check keys to the ACTION CLASS, never to an authorisation phrase — caution that triggers
+on the word "approved" is absent exactly when nobody is watching (cbfc486c: SES production
+access requested and a support case opened on ANOTHER COMPANY'S AWS account, mid-flow, no
+approval moment in sight). So, mechanically:
+- Before the first mutating call to any external system this session: assert the target
+  identity in the same turn — `aws sts get-caller-identity`, `benmore whoami && benmore apps`
+  (whoami alone reads a cached credential and lies: e7faa32e), `gh repo view --json nameWithOwner`.
+- External-facing artifacts (DNS records, credential docs, client emails, deploy claims) are
+  written only from a post-write READBACK of the authoritative system, never from inferred
+  state (68cc0040: wrong CNAME sent to a client; 06f4a671: prod approval obtained for what
+  `benmore deploy .` actually sent to dev).
 
 Now show me the preflight output, then ask for the task if I haven't given one.
