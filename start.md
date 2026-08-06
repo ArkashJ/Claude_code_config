@@ -29,6 +29,12 @@ the next task message after /start, not just this turn. The list is the complete
 any "done / verified / covered everything" claim must cite it and NAME what was not read.
 "Thorough" means the enumeration is exhausted, not an effort level.
 
+Counts come from the UNTRUNCATED set: run the counting command (`wc -l`, `--json | jq length`)
+BEFORE any `head`/`--limit`/`tail`, and state "N total, showing M". A truncated listing is a
+sample, not an enumeration — concluding from one is how "3 new sessions" got reported when
+there were 19 (extractor, 2026-08-06). If a tool has its own enumerator (e.g.
+`harvest.py --list`), prefer it over ad-hoc `find | head`.
+
 Truth does not only live in this repo. The enumeration must also cover, when they exist:
 connected MCP sources (Slack, Drive, Notion — search them, don't assume), sibling project
 directories, client-sent document folders (drive dumps, specs, SOW/roadmap/contract docs), and
