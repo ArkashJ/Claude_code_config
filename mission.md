@@ -9,8 +9,9 @@ Execute the /start instructions first (preflight, enumeration, working rules —
 continuous commit/push/checkpoint-log and volunteered status lines).
 
 Then, BEFORE executing: resolve every concrete token in the mission text above against this
-repo — commits (`git cat-file -e <sha>`), branches (`git ls-remote --heads origin <name>`),
-issues/PRs (`gh issue view <n>`), test counts, file paths. A handed-in plan goes stale the same
+repo — run `~/.claude/commands/bin/resolve-plan.sh <planfile>` (or pipe the mission text to
+it); it checks commits, #issues/PRs, and file paths, and exits 1 on anything stale. Branches
+and counts it can't see: `git ls-remote --heads origin <name>`, test counts by running them. A handed-in plan goes stale the same
 way CLAUDE.md does, and can even belong to a different repository — 06f4a671's did (cited commit
 `602f40b`: "Not a valid object name"; cited 1275 tests: repo runs 120), caught by exactly this
 check, saving the whole run. Report what failed to resolve and adapt before phase 1.
