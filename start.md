@@ -22,6 +22,25 @@ Check for a dead predecessor: any open draft PR with a "Checkpoint log" comment 
 handoff means a session died before /wrap. Read its checkpoint log, report what it was doing and
 where it stopped, and ask whether to resume it or start fresh.
 
+Then run the hygiene report and act on what it prints:
+
+```bash
+~/.claude/commands/bin/repo-hygiene.sh          # exit 1 = something is stale
+```
+
+Inherited mess is a session-open problem, not a session-close one: CLAUDE.md files inherited
+uncommitted from a prior session cost a triage turn (39771011), a forgotten worktree owning
+`main` blocked a checkout mid-run (ca8cacbc), and a polluted main checkout forced an entire
+worktree/branch/PR cycle for a one-file fix (e7665ec7). The script deletes nothing —
+**pruning worktrees and deleting branches are blast-radius actions needing a fresh per-action
+confirmation** (rule 7), and it never proposes deleting a branch an open PR owns.
+
+Do not re-derive this by hand. Branch/worktree cleanup was re-enumerated from scratch in eight
+sessions across five repos, and one handoff prompt carried a hand-written nine-branch deletion
+loop as prose — the automation had been written repeatedly and never made a file. Two traps it
+already encodes: `git branch --merged` **lies after a squash merge** (merge state comes from
+`gh pr list --state merged`), and "cleanup done" is false while an open PR owns a survivor.
+
 ## 2. Enumerate, then DIVE on the intersection
 
 The FIRST action on any task — even one that opens with an urgent imperative; do the single

@@ -12,4 +12,11 @@ ab=$(git rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null | awk '{
 [ -n "$ab" ] || ab="no-upstream"
 echo "[preflight] repo=$(basename "$PWD") branch=$branch dirty-files=$dirty $ab (origin freshly fetched)."
 echo "If this is a WORK session: run /start before acting — enumerate sources with UNTRUNCATED counts first."
+# Repo hygiene at OPEN, not just at close. Inherited mess is what the corpus documents
+# (39771011 CLAUDE.md files inherited uncommitted; ca8cacbc a forgotten worktree owning
+# main and blocking a checkout; e7665ec7 a polluted main checkout costing a whole
+# worktree/branch/PR cycle for a one-file fix) — cleanup at close only tidies.
+# Measured 2026-08-10: /wrap was invoked in 4 of 109 sessions, /start in 7. This hook
+# fires in all of them. --brief prints one line and is silent when clean.
+timeout 25 "$HOME/.claude/commands/bin/repo-hygiene.sh" --brief 2>/dev/null
 exit 0

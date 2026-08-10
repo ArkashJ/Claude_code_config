@@ -51,6 +51,32 @@ docs against the generated spec or the code itself, fix drift, and flag—don't 
 doc claim that was already wrong before this session. Never add mutable state to auto-loaded
 files (CLAUDE.md and kin); those carry only invariants and pointers to commands.
 
+A link checker is not a claim checker: `verify.docs-links` passes green on a roadmap with a
+wrong issue count, a stale CI banner and a hostname that now 502s (33ecb76f). Any doc that
+carries **values** — counts, hostnames, DNS records, credentials, issue numbers — is
+regenerated from a readback of the authoritative system, never proofread by eye (e3815767
+caught committed client-facing DNS values disagreeing with live infra that way).
+
+## 6b. Repo hygiene — run the script, do not re-derive it
+
+```bash
+~/.claude/commands/bin/repo-hygiene.sh          # reports; exit 1 = something is stale
+```
+
+Then act on what it prints: prune worktrees, delete branches whose PR is merged, commit
+any dirty agent-instruction file. **Deleting a branch or worktree is a blast-radius
+action — name it and confirm before each sweep; the script deliberately deletes nothing.**
+
+Do not re-derive this by hand. Harvests of 2026-08-10 found branch/worktree cleanup
+re-enumerated from scratch in eight sessions across five repos, human-initiated in most
+of them, and one session's handoff prompt carried a hand-written nine-branch deletion
+loop as prose — the automation had been written repeatedly and never made a file.
+
+Two traps the script already encodes, so you don't rediscover them:
+- `git branch --merged` **lies after a squash merge**. Merge state comes from `gh pr list
+  --state merged`, never from git's merge base.
+- Never report "cleanup done" while an open PR owns a surviving branch (0b192049 did).
+
 ## 7. Confidentiality gate
 
 Before committing any derived artifact: no client names, addresses, credentials, or confidential
