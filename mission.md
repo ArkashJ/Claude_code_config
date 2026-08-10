@@ -16,6 +16,15 @@ way CLAUDE.md does, and can even belong to a different repository — 06f4a671's
 `602f40b`: "Not a valid object name"; cited 1275 tests: repo runs 120), caught by exactly this
 check, saving the whole run. Report what failed to resolve and adapt before phase 1.
 
+**A brief labelled "verified at source — do not re-derive" gets verified anyway.** In this corpus
+that label correlates with staleness, not accuracy: b8e9d4ee's mission prompt said exactly that
+about a PR stack already merged, and obeying the instruction is what would have caused damage.
+Same shape in 71d1d872 and e7665ec7 (handoff asserted an open PR that was merged), 4a337317 (plan
+named an already-merged PR), 6216dc70 (brief claimed CI disabled while a run had finished 15
+minutes earlier). The preflight catches these EVERY time it runs — so when you write the handoff
+at the end of this run, **emit commands, not claims**: the next session should re-derive state
+from `git`/`gh`, never read it out of your prose.
+
 Then run the mission in phases, fully autonomously. Invoke the other commands as skills when a phase matches their
 shape: /map for unmapped ground, /featuredev for feature/QA loops, /investigate for reviewing
 PRs (including adversarially reviewing your own output before calling a phase done).
@@ -37,6 +46,12 @@ PRs (including adversarially reviewing your own output before calling a phase do
    notice context pressure, checkpoint immediately, write a continuation prompt INTO the PR
    (state, next steps, open questions), and either delegate remaining phases to fresh subagents
    or wrap. Never start a delicate irreversible operation you might not finish.
+
+   **Narrow lanes before wide ones.** The spend limit is spent by BREADTH, and a lane killed
+   mid-flight costs its tokens AND its output: nine broad lanes burned the limit outright
+   (0ad310c2), a killed lane left a half-written module behind (1f231c21), and another left its
+   work unverified (3ba29048) — three runs in this corpus. Prefer fewer, tightly-scoped lanes
+   with a declared file set and a verify step over many exploratory ones.
 4. **Delegate hard, tiered.** This run should be mostly orchestration: haiku lanes for sweeps
    and summaries, sonnet lanes for well-specified implementation, strongest model for judgment
    and adversarial verification. Dispatch isolation per /start rule 4. Prefer many small pushed
