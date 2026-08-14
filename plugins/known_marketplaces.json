@@ -1,0 +1,26 @@
+{
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-08-14T22:08:23.354Z"
+  },
+  "ponytail": {
+    "source": {
+      "source": "github",
+      "repo": "DietrichGebert/ponytail"
+    },
+    "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/ponytail",
+    "lastUpdated": "2026-08-04T16:23:27.653Z"
+  },
+  "openai-codex": {
+    "source": {
+      "source": "github",
+      "repo": "openai/codex-plugin-cc"
+    },
+    "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/openai-codex",
+    "lastUpdated": "2026-07-26T04:42:38.413Z"
+  }
+}

@@ -1,0 +1,65 @@
+#!/bin/sh
+# One command to move Claude Code config between machines.
+#
+#   claude-sync         regenerate derived surfaces, commit, push ~/.claude
+#   claude-sync pull    fast-forward this machine from the remote
+#
+# Bootstrap on a new machine:
+#   git clone git@github.com:ArkashJ/Claude_code_config.git ~/.claude
+#   ln -s ~/.claude/commands/bin/claude-sync ~/.local/bin/claude-sync
+set -eu
+
+CFG="$HOME/.claude"
+SITE="${SITE:-$HOME/Developer/personal/Personal-Website}"
+
+case "${1:-push}" in
+  pull)
+    git -C "$CFG" pull --rebase
+    exit 0
+    ;;
+  push) ;;
+  *)
+    echo "usage: claude-sync [push|pull]" >&2
+    exit 2
+    ;;
+esac
+
+# --- derived surfaces (each is best-effort; a missing target must not block the push)
+
+# Skills that other agents load live in ~/.agents, outside the repo. The lock file
+# records where each came from, so a fresh machine can reinstall them.
+if [ -f "$HOME/.agents/.skill-lock.json" ]; then
+  cp "$HOME/.agents/.skill-lock.json" "$CFG/agents-skill-lock.json"
+fi
+
+if [ -d "$HOME/.codex/prompts" ]; then
+  sh "$CFG/commands/.codex/sync.sh" >/dev/null
+fi
+
+# --- push ~/.claude
+
+git -C "$CFG" add -A
+if git -C "$CFG" diff --cached --quiet; then
+  echo "config: already in sync"
+else
+  git -C "$CFG" commit -q -m "sync: $(date '+%Y-%m-%d %H:%M')"
+  git -C "$CFG" push -q
+  echo "config: pushed $(git -C "$CFG" rev-parse --short HEAD)"
+fi
+
+# --- publish commands to arkashj.com/skills
+
+[ -d "$SITE/content/skills" ] || exit 0
+sh "$CFG/commands/bin/sync-skills.sh" >/dev/null
+
+# --porcelain, not `diff`: a brand-new command lands as an untracked file, which
+# `git diff` does not report.
+n=$(git -C "$SITE" status --porcelain -- content/skills | wc -l | tr -d ' ')
+if [ "$n" = "0" ]; then
+  echo "site:   /skills already current"
+else
+  git -C "$SITE" add content/skills
+  git -C "$SITE" commit -q -m "skills: sync $n command(s) from ~/.claude/commands"
+  git -C "$SITE" push -q
+  echo "site:   published $n skill file(s) -> arkashj.com/skills"
+fi

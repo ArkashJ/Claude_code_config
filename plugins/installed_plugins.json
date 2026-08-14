@@ -1,0 +1,82 @@
+{
+  "version": 2,
+  "plugins": {
+    "code-review@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/unknown",
+        "version": "unknown",
+        "installedAt": "2026-06-22T01:42:21.958Z",
+        "lastUpdated": "2026-08-14T22:08:23.399Z",
+        "gitCommitSha": "315339817c4e18d9c3cfc5ba11795d4f1a91de9f"
+      }
+    ],
+    "typescript-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/typescript-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-06-22T01:42:46.383Z",
+        "lastUpdated": "2026-06-22T01:42:46.383Z"
+      }
+    ],
+    "pr-review-toolkit@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/unknown",
+        "version": "unknown",
+        "installedAt": "2026-06-22T01:42:51.603Z",
+        "lastUpdated": "2026-08-14T22:08:23.422Z",
+        "gitCommitSha": "315339817c4e18d9c3cfc5ba11795d4f1a91de9f"
+      }
+    ],
+    "gopls-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-06-22T01:42:56.490Z",
+        "lastUpdated": "2026-06-22T01:42:56.490Z"
+      }
+    ],
+    "pyright-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pyright-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-06-22T01:43:02.124Z",
+        "lastUpdated": "2026-06-22T01:43:02.124Z"
+      }
+    ],
+    "superpowers@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0",
+        "version": "6.3.0",
+        "installedAt": "2026-07-12T13:44:35.945Z",
+        "lastUpdated": "2026-08-13T03:19:11.768Z",
+        "gitCommitSha": "d884ae04edebef577e82ff7c4e143debd0bbec99"
+      }
+    ],
+    "vanta@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/vanta/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-07-12T14:58:02.611Z",
+        "lastUpdated": "2026-07-12T14:58:02.611Z",
+        "gitCommitSha": "345d86b55faa649e955b7ea5569cf52d8425c2d5"
+      }
+    ],
+    "ponytail@ponytail": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/ponytail/ponytail/4.8.4",
+        "version": "4.8.4",
+        "installedAt": "2026-07-16T16:08:55.039Z",
+        "lastUpdated": "2026-07-16T16:08:55.039Z",
+        "gitCommitSha": "16f29800fd2681bdf24f3eb4ccffe38be3baec6b"
+      }
+    ]
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "cleanupPeriodDays": 3650,
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(aws sts get-caller-identity*)",
+      "Bash(export AWS_PROFILE=*)",
+      "Bash(benmore check *)",
+      "Bash(playwright-cli *)",
+      "Bash(git fetch *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(benmore sql *)",
+      "Bash(benmore push *)",
+      "Bash(sqlite3 *)",
+      "mcp__plugin_aws-core_aws-mcp",
+      "Bash(gh:*)",
+      "Bash(npm ls *)",
+      "Bash(npm view *)",
+      "Bash(npm outdated*)",
+      "Bash(npm ping*)",
+      "Bash(npm doctor*)",
+      "Bash(npm config get*)",
+      "Bash(npm root*)",
+      "Bash(npm prefix*)",
+      "Bash(npm search *)",
+      "Bash(npm why *)",
+      "Bash(npm explain *)",
+      "Bash(npm fund*)",
+      "Bash(npm docs *)",
+      "Bash(brew list *)",
+      "Bash(brew info*)",
+      "Bash(brew search*)",
+      "Bash(brew outdated*)",
+      "Bash(brew deps*)",
+      "Bash(brew uses*)",
+      "Bash(brew config*)",
+      "Bash(brew doctor*)",
+      "Bash(brew home*)",
+      "Bash(brew desc*)",
+      "Bash(brew leaves*)",
+      "Bash(docker ps*)",
+      "Bash(docker images*)",
+      "Bash(docker logs*)",
+      "Bash(docker inspect*)",
+      "Bash(docker version*)",
+      "Bash(docker info*)",
+      "Bash(docker stats*)",
+      "Bash(docker top*)",
+      "Bash(docker port*)",
+      "Bash(docker diff*)",
+      "Bash(docker history*)",
+      "Bash(docker events*)",
+      "Bash(go version*)",
+      "Bash(go env*)",
+      "Bash(go list*)",
+      "Bash(go doc*)",
+      "Bash(go vet*)",
+      "Bash(go mod graph*)",
+      "Bash(go mod verify*)",
+      "Bash(go mod why*)",
+      "Bash(bun --version)",
+      "Bash(bun -v)",
+      "Bash(bun pm ls*)",
+      "Bash(bun outdated*)",
+      "Bash(benmore whoami*)",
+      "Bash(benmore apps*)",
+      "Bash(benmore version*)",
+      "Bash(benmore docs*)",
+      "Bash(benmore logs*)",
+      "Bash(benmore tail*)",
+      "Bash(benmore errors*)",
+      "Bash(benmore audit*)",
+      "Bash(benmore sync-status*)",
+      "Bash(benmore describe*)",
+      "Bash(benmore feature list*)",
+      "Bash(benmore feature export*)",
+      "Bash(vcheck *)",
+      "Bash(odiff *)"
+    ],
+    "ask": [
+      "Bash(gh pr merge*)",
+      "Bash(gh repo delete*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(benmore deploy*)",
+      "Bash(benmore promote*)",
+      "Bash(benmore delete-file*)"
+    ],
+    "defaultMode": "auto"
+  },
+  "model": "opus[1m]",
+  "skillOverrides": {
+    "connect-recommend": "off"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/commands/hooks/block-wasteful-shell.sh",
+            "timeout": 5,
+            "statusMessage": "Validating shell command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/commands/hooks/session-preflight.sh",
+            "timeout": 15,
+            "statusMessage": "Preflight: fetching origin"
+          }
+        ]
+      }
+    ]
+  },
+  "worktree": {
+    "baseRef": "fresh"
+  },
+  "enableWorkflows": true,
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "vanta@claude-plugins-official": false,
+    "ponytail@ponytail": true,
+    "1.0.0@inline": false,
+    "anthropic-skills@inline": false,
+    "claude-md-management@inline": false,
+    "commit-commands@inline": false,
+    "feature-dev@inline": false,
+    "aws-core@inline": false
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    },
+    "openai-codex": {
+      "source": {
+        "source": "github",
+        "repo": "openai/codex-plugin-cc"
+      }
+    }
+  },
+  "effortLevel": "high",
+  "askUserQuestionTimeout": "never",
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
+  "skipWorkflowUsageWarning": true,
+  "editorMode": "normal",
+  "switchModelsOnFlag": false,
+  "teammateMode": "auto",
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "AWS CLI (`aws ...`) and aws-core MCP calls against AWS account <AWS_ACCOUNT_ID>, including control-plane writes: cloudwatch put-metric-alarm, sns create-topic/subscribe, rds modify-db-*, elbv2 modify-listener / --ssl-policy, put-*-policy, tag/untag, and equivalent describe/list reads. The user has standing authorization for all AWS calls in this account.",
+      "Shell one-liners and multi-line scripts that wrap the above aws calls — variable assignments, for-loops, helper functions, heredocs — count as allowed aws calls.",
+      "Bash(benmore test:*) and Bash(benmore probe:*) against spot-notify --env dev",
+      "Bash(benmore describe:*) and Bash(benmore logs:*) for spot-notify"
+    ],
+    "soft_deny": [
+      "$defaults",
+      "Mutating AWS calls (create/put/delete/update/request/subscribe/modify/terminate) when the target account has NOT been confirmed as <AWS_ACCOUNT_ID> in this session via `aws sts get-caller-identity` — ambient ~/.aws credentials have previously pointed at a third party's account and SES production access was requested on a stranger's tenant. The standing grant above applies ONLY after the account is confirmed.",
+      "benmore deploy/promote, or benmore sql containing INSERT/UPDATE/DELETE/DROP/ALTER, before `benmore apps` has succeeded this session — `benmore whoami` alone reads a cached credential and reports healthy while every real call 401s.",
+      "benmore push/promote/createsuperuser targeting --env prod for spot-notify",
+      "benmore sql containing INSERT/UPDATE/DELETE/DROP/ALTER against spot-notify before benmore apps has succeeded this session"
+    ],
+    "environment": [
+      "### Org-wide",
+      "**Organization**: Benmore (github.com/Benmore-Studio org; repo path /Users/arkashjain/Benmore/spot-notify) — no remotes configured in this repo, so treat this repo as unpublished/local-only for now",
+      "**Cloud provider(s)**: AWS (Amazon SES / AWS End User Messaging, per CLAUDE.md — Benmore platform-managed, no provider API keys in this app)",
+      "**Repository visibility**: not queryable (no git remote configured in this repo) — assume private per shipped default until a remote is added",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: Benmore secret manager (env.yaml is git-ignored; credentials provisioned via `benmore createsuperuser` per CLAUDE.md)",
+      "**Default / protected branches**: not queryable (no remote / gh data available for this repo)",
+      "**CI/CD deploy targets**: Benmore platform `dev` and `prod` instances via `benmore push` / `benmore promote` (per CLAUDE.md deploy loop) — deploys are described as user-gated, do NOT run unattended",
+      "**Network posture**: None configured",
+      "**Source control**: This repo (spot-notify) — no remotes currently configured; no additional orgs configured",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: Benmore framework CLI (`benmore`) and its dev/prod instance endpoints for this app (spot-notify); Spot's Go API at `apps/api` consuming this hub via `ANCHOR_NOTIFY_HUB_URL`",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: `retention.yaml` (message retention policy — PII minimization, 90-day aging per CLAUDE.md); SMS message bodies (encrypted at rest per `encrypted.yaml`); env.yaml (git-ignored secrets) — share only with audiences cleared for Spot service-account / admin access",
+      "**Data retention / declassification**: Message log rows age out at 90 days per `retention.yaml` (per CLAUDE.md) — bodies are not stored, only routing metadata",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment; specifically the `benmore ... --env prod` / `benmore promote spot-notify` deploy targets called out in CLAUDE.md as user-gated",
+      "**Protected deployment namespaces / environments**: the Benmore `prod` environment for spot-notify (per CLAUDE.md's user-gated deploy loop) — fall back to the Sensitive remote targets heuristic otherwise",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development (Benmore/Spot Notify transactional messaging service)",
+      "**Trusted repo**: /Users/arkashjain/Benmore/spot-notify (no remote currently configured) — visibility unconfirmed, treat as private by default",
+      "**Org-specific CLIs**: `benmore` (Benmore framework CLI — push/promote/probe/test/describe/logs/createsuperuser/sql)",
+      "routine `benmore test`, `benmore probe`, `benmore describe`, and `benmore logs` calls against the `dev` environment for spot-notify are routine per CLAUDE.md's Local checks section"
+    ]
+  },
+  "voiceEnabled": true
+}

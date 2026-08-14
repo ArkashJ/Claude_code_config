@@ -1,0 +1,111 @@
+{
+  "version": 3,
+  "skills": {
+    "docx": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/anthropics/skills.git",
+      "skillPath": "skills/docx/SKILL.md",
+      "skillFolderHash": "6e6f5b95c1de6e803cc07b214f5059b074d64e0c",
+      "installedAt": "2026-07-22T05:52:13.339Z",
+      "updatedAt": "2026-07-22T05:52:13.339Z"
+    },
+    "gh-stack": {
+      "source": "github/gh-stack",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/github/gh-stack.git",
+      "skillPath": "skills/gh-stack/SKILL.md",
+      "skillFolderHash": "c95c8b5b4dd850f3fef007b304428f5684f2fb87",
+      "installedAt": "2026-07-31T15:20:13Z",
+      "updatedAt": "2026-07-31T15:20:13Z"
+    },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/pbakaus/impeccable.git",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "skillFolderHash": "ee0fbf2481ea1466953819325b66b85f7c79ed8d",
+      "installedAt": "2026-06-22T01:47:14.990Z",
+      "updatedAt": "2026-06-22T01:47:14.990Z"
+    },
+    "pdf": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/anthropics/skills.git",
+      "skillPath": "skills/pdf/SKILL.md",
+      "skillFolderHash": "6369f4649de69bd6857c9bc3b058a77206009238",
+      "installedAt": "2026-07-27T20:41:14.706Z",
+      "updatedAt": "2026-07-27T20:41:14.706Z"
+    },
+    "playwright-cli": {
+      "source": "microsoft/playwright-cli",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/microsoft/playwright-cli.git",
+      "skillPath": "skills/playwright-cli/SKILL.md",
+      "skillFolderHash": "6bf055ae36a2460e4a8f70eaec772ab7ac7e12e4",
+      "installedAt": "2026-06-18T19:31:43.409Z",
+      "updatedAt": "2026-06-25T16:02:30.955Z"
+    },
+    "vocabulary": {
+      "source": "index-how/vocabulary",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/index-how/vocabulary.git",
+      "skillPath": "skills/vocabulary/SKILL.md",
+      "skillFolderHash": "c4b30f520e995bf1399659886ea6df4b9d5eea5b",
+      "installedAt": "2026-06-20T14:02:38.084Z",
+      "updatedAt": "2026-06-22T01:49:11.900Z"
+    },
+    "xlsx": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/anthropics/skills.git",
+      "skillPath": "skills/xlsx/SKILL.md",
+      "skillFolderHash": "fe6471cc9b5b97aae0b576ccb92ffd9b0207589d",
+      "installedAt": "2026-07-26T15:07:58.463Z",
+      "updatedAt": "2026-07-26T15:07:58.463Z"
+    },
+    "connect-recommend": {
+      "source": "docs.stripe.com",
+      "sourceType": "well-known",
+      "sourceUrl": "https://docs.stripe.com/.well-known/skills/connect-recommend/SKILL.md",
+      "skillFolderHash": "",
+      "installedAt": "2026-08-03T17:16:32.408Z",
+      "updatedAt": "2026-08-03T17:16:32.408Z"
+    },
+    "stripe-best-practices": {
+      "source": "docs.stripe.com",
+      "sourceType": "well-known",
+      "sourceUrl": "https://docs.stripe.com/.well-known/skills/stripe-best-practices/SKILL.md",
+      "skillFolderHash": "",
+      "installedAt": "2026-08-03T17:16:32.410Z",
+      "updatedAt": "2026-08-03T17:16:32.410Z"
+    },
+    "stripe-docs": {
+      "source": "docs.stripe.com",
+      "sourceType": "well-known",
+      "sourceUrl": "https://docs.stripe.com/.well-known/skills/stripe-docs/SKILL.md",
+      "skillFolderHash": "",
+      "installedAt": "2026-08-03T17:16:32.410Z",
+      "updatedAt": "2026-08-03T17:16:32.410Z"
+    }
+  },
+  "dismissed": {
+    "findSkillsPrompt": true
+  },
+  "lastSelectedAgents": [
+    "amp",
+    "antigravity",
+    "antigravity-cli",
+    "cline",
+    "codex",
+    "cursor",
+    "deepagents",
+    "gemini-cli",
+    "github-copilot",
+    "kimi-code-cli",
+    "opencode",
+    "warp",
+    "zed",
+    "claude-code"
+  ]
+}

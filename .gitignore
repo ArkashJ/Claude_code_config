@@ -1,0 +1,25 @@
+# ~/.claude is mostly runtime state (transcripts, caches, session locks).
+# Ignore everything at the root, then opt the portable config back in.
+/*
+
+!/.gitignore
+!/README.md
+!/CLAUDE.md
+!/settings.json
+!/agents-skill-lock.json
+
+!/commands/
+!/rules/
+!/skills/
+
+# plugins/ is a large install tree; only the manifests are portable.
+!/plugins/
+/plugins/*
+!/plugins/*.json
+
+# Machine-local overrides and secrets never sync.
+settings.local.json
+*.local.json
+.DS_Store
+*.doctor-bak
+*.doctor-backup-*

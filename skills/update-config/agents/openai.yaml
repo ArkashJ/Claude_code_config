@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update Config"
+  short_description: "Safely update Claude configuration files"
+  default_prompt: "Use $update-config to safely update and validate my Claude configuration."
