@@ -32,6 +32,22 @@ if [ -f "$HOME/.agents/.skill-lock.json" ]; then
   cp "$HOME/.agents/.skill-lock.json" "$CFG/agents-skill-lock.json"
 fi
 
+# settings.json is untracked (real AWS account id in the autoMode policy, public repo).
+# Publish a redacted copy so the settings still travel. Validate before writing, so a
+# broken redaction can never be the thing a new machine bootstraps from.
+if [ -f "$CFG/settings.json" ]; then
+  tmp=$(mktemp)
+  # Match the shape, not the literal — hardcoding the id here would republish the very
+  # thing being redacted. AWS account ids are always exactly 12 digits.
+  sed -E 's/[0-9]{12}/<AWS_ACCOUNT_ID>/g' "$CFG/settings.json" > "$tmp"
+  if python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$tmp" 2>/dev/null; then
+    mv "$tmp" "$CFG/settings.example.json"
+  else
+    rm -f "$tmp"
+    echo "claude-sync: redacted settings failed to parse — settings.example.json left as-is" >&2
+  fi
+fi
+
 if [ -d "$HOME/.codex/prompts" ]; then
   sh "$CFG/commands/.codex/sync.sh" >/dev/null
 fi

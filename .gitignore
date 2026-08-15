@@ -5,8 +5,13 @@
 !/.gitignore
 !/README.md
 !/CLAUDE.md
-!/settings.json
 !/agents-skill-lock.json
+
+# settings.json holds the real AWS account id in its autoMode policy, and this repo is
+# public. claude-sync publishes a redacted settings.example.json in its place; autoMode is
+# only honored from ~/.claude/settings.json itself, so the live file must stay untracked.
+/settings.json
+!/settings.example.json
 
 !/commands/
 !/rules/
