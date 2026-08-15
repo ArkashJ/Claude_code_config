@@ -12,7 +12,8 @@ install trees) is ignored — see `.gitignore`. This repo is the whole config su
 | `commands/hooks/`         | `session-preflight.sh`, `block-wasteful-shell.sh` (wired in settings)    |
 | `commands/.codex/`        | Codex-adapted variants + their own `sync.sh`                             |
 | `rules/`                  | Topic rules pulled into context                                          |
-| `skills/`                 | Skills. Entries symlinked to `~/.agents/skills` dangle until reinstalled |
+| `skills/`                 | Skills. Locally-authored ones are real dirs here; 9 third-party ones are |
+|                           | symlinks into `~/.agents/skills` and dangle until reinstalled            |
 | `agents-skill-lock.json`  | Copy of `~/.agents/.skill-lock.json` — source URL for each such skill    |
 | `plugins/*.json`          | Installed-plugin + marketplace manifests                                 |
 
@@ -33,8 +34,14 @@ git clone git@github.com:ArkashJ/Claude_code_config.git ~/.claude
 ln -s ~/.claude/commands/bin/claude-sync ~/.local/bin/claude-sync
 ```
 
-Then reinstall the `~/.agents/skills` entries listed in `agents-skill-lock.json` to
-resolve the dangling symlinks under `skills/`.
+Then reinstall the 9 third-party skills listed in `agents-skill-lock.json` to resolve
+the dangling symlinks under `skills/`. Everything else is already in this repo:
+
+- Locally-authored skills (`harvest`, `benmore-cli`, `design-director`, `qa_skill`,
+  `auditable-agentic-extraction`) are real directories under `skills/`. `~/.agents/skills`
+  symlinks *into* here, so there is one copy and it cannot drift.
+- `checkpoint`, `mission`, `start`, `wrap` are generated into `~/.agents/skills` from
+  `commands/.codex/*.prompt` by `commands/.codex/sync.sh`, which `claude-sync` runs.
 
 ## History
 

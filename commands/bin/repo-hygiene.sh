@@ -77,7 +77,16 @@ for f in CLAUDE.md AGENTS.md; do
   [ -f "$f" ] || continue
   while read -r p; do
     [ -z "$p" ] && continue
-    [ -e "$p" ] || { out+=("  $f names '$p' which does not exist"); n_path=$((n_path + 1)); }
+    [ -e "$p" ] && continue
+    # A leading slash means a route or URL, not a file on disk (`/skills.json`).
+    case "$p" in /*) continue ;; esac
+    # Docs legitimately name files that must NOT exist — gitignored lockfiles, guard
+    # targets, "there is no X" corrections. Absent is the documented state, not a rot.
+    if grep -F -- "$p" "$f" |
+       grep -qiE 'gitignore|exclude|does not exist|there is no|rejects|stray|never'; then
+      continue
+    fi
+    out+=("  $f names '$p' which does not exist"); n_path=$((n_path + 1))
   done < <(grep -oE '`[a-zA-Z0-9_./-]+\.(sh|py|go|ts|js|md|yaml|yml|json)`' "$f" 2>/dev/null |
            tr -d '`' | sort -u)
 done
