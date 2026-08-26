@@ -4,11 +4,11 @@
     "code-review@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/57072d8655ae",
-        "version": "57072d8655ae",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/b819188d2eea",
+        "version": "b819188d2eea",
         "installedAt": "2026-06-22T01:42:21.958Z",
-        "lastUpdated": "2026-08-15T01:02:09.087Z",
-        "gitCommitSha": "57072d8655ae583a0b1fc8b4fbcaa98a42a4a7ab"
+        "lastUpdated": "2026-08-25T21:08:52.247Z",
+        "gitCommitSha": "638b2e275936a5dc7131d8b54dee4dfee99d1aa8"
       }
     ],
     "typescript-lsp@claude-plugins-official": [
@@ -23,11 +23,11 @@
     "pr-review-toolkit@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/57072d8655ae",
-        "version": "57072d8655ae",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/b819188d2eea",
+        "version": "b819188d2eea",
         "installedAt": "2026-06-22T01:42:51.603Z",
-        "lastUpdated": "2026-08-15T01:02:09.086Z",
-        "gitCommitSha": "57072d8655ae583a0b1fc8b4fbcaa98a42a4a7ab"
+        "lastUpdated": "2026-08-25T21:08:52.245Z",
+        "gitCommitSha": "638b2e275936a5dc7131d8b54dee4dfee99d1aa8"
       }
     ],
     "gopls-lsp@claude-plugins-official": [
@@ -76,6 +76,16 @@
         "installedAt": "2026-07-16T16:08:55.039Z",
         "lastUpdated": "2026-07-16T16:08:55.039Z",
         "gitCommitSha": "16f29800fd2681bdf24f3eb4ccffe38be3baec6b"
+      }
+    ],
+    "aws-core@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/aws-core/1.1.0",
+        "version": "1.1.0",
+        "installedAt": "2026-08-19T17:07:49.923Z",
+        "lastUpdated": "2026-08-19T17:07:49.923Z",
+        "gitCommitSha": "651a156ef7a92f380a9494978e223ff555102eac"
       }
     ]
   }

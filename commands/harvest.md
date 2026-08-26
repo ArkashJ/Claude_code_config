@@ -25,7 +25,7 @@ shape: **a check that reported success without having checked.**
 - `| tail` and a trailing `echo` laundered exit codes, twice, in front of two different people.
 - An ANSI-prefixed `31 failed` was invisible to a grep that matched `124 passed` — a clean,
   plausible, **half** answer.
-- A content guard's *scope* excluded the one document that was wrong.
+- A content guard's _scope_ excluded the one document that was wrong.
 - A runbook comment claimed a gitignored file would protect you.
 
 Three were written by the person harvesting them. Two were inside documents whose entire purpose
@@ -65,6 +65,7 @@ Group by **how the failure hid**, not what it touched. Features are unique; mech
 generates a guard that catches the fourth.
 
 For each item, answer:
+
 - **What reported success?** The specific call, flag, or line.
 - **What did it not examine?**
 - **What would have caught it?** If the answer is "reading more carefully", you have not found
@@ -81,8 +82,8 @@ conclusions published, work redone. A P3 that wasted four hours outranks a P1 ca
    discipline; they adopt convenience. If the safe command is longer than the unsafe one, the
    unsafe one wins forever.
 2. **A test that fails the build.** Source scans are legitimate — some defects live in how
-   verification is *written*, where no runtime assertion can see them.
-3. **A comment at the exact call site**, stating the mechanism and *why the obvious fix is wrong*.
+   verification is _written_, where no runtime assertion can see them.
+3. **A comment at the exact call site**, stating the mechanism and _why the obvious fix is wrong_.
 4. **A doc.** Last resort. Nothing above was prevented by a doc.
 
 Every artifact must carry **the incident that produced it**, concretely, with the real numbers.
@@ -96,7 +97,7 @@ very defect class you are harvesting. For each one: break the thing it guards, w
 restore, watch it pass. Report both observations. If a guard passes on first write, be suspicious
 of it rather than pleased.
 
-Against an *intermittent* failure a single green run proves nothing — reproduce the **mechanism**
+Against an _intermittent_ failure a single green run proves nothing — reproduce the **mechanism**
 instead (shrink a timeout, force the error branch, point it at a surface where the thing genuinely
 does not exist).
 
