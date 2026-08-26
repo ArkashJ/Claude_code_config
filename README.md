@@ -43,7 +43,12 @@ curl -fsSL https://raw.githubusercontent.com/ArkashJ/Claude_code_config/main/com
 the way first. Runtime state (`projects/`, caches, `settings.json`, `settings.local.json`)
 is gitignored and survives untouched; the tracked files it *would* overwrite are copied to
 `~/claude-config-backup-<timestamp>/` first. It refuses to run if `~/.claude` is already a
-git repo — that case is `claude-sync pull`. Set `REMOTE=` to adopt a different fork.
+git repo — that case is `claude-sync pull`.
+
+The default remote is SSH. On a machine with no key loaded yet, prefix the command with
+`REMOTE=https://github.com/ArkashJ/Claude_code_config.git` (read-only; `git -C ~/.claude
+remote set-url origin git@github.com:ArkashJ/Claude_code_config.git` once the key is in
+place). The same variable adopts a different fork.
 
 Two things it cannot restore: `plugins/` ships manifests only (reinstall the plugins), and
 the third-party skills are symlinks into `~/.agents/skills` that dangle until reinstalled
