@@ -3,10 +3,12 @@
 #
 #   claude-sync         regenerate derived surfaces, commit, push ~/.claude
 #   claude-sync pull    fast-forward this machine from the remote
+#   claude-sync adopt   turn an EXISTING, un-cloned ~/.claude into a checkout of the
+#                       remote, keeping this machine's runtime state and settings.json
 #
-# Bootstrap on a new machine:
-#   git clone git@github.com:ArkashJ/Claude_code_config.git ~/.claude
-#   ln -s ~/.claude/commands/bin/claude-sync ~/.local/bin/claude-sync
+# Bootstrap on a new machine (no clone needed, and works on a ~/.claude that is
+# already full of local config -- adopt backs up whatever it would overwrite):
+#   curl -fsSL https://raw.githubusercontent.com/ArkashJ/Claude_code_config/main/commands/bin/claude-sync | sh -s adopt
 set -eu
 
 CFG="$HOME/.claude"
@@ -17,9 +19,48 @@ case "${1:-push}" in
     git -C "$CFG" pull --rebase
     exit 0
     ;;
+  adopt)
+    # Everything in ~/.claude that is not on the allowlist in .gitignore is runtime state
+    # (transcripts, caches, session locks) and is invisible to git, so it survives this
+    # untouched. Only TRACKED paths get overwritten -- back those up first, because on a
+    # machine that already had config they are the hand-written ones.
+    REMOTE="${REMOTE:-git@github.com:ArkashJ/Claude_code_config.git}"
+    BAK="$HOME/claude-config-backup-$(date '+%Y%m%d-%H%M%S')"
+    if [ -d "$CFG/.git" ]; then
+      echo "claude-sync: $CFG is already a git repo -- use 'claude-sync pull'" >&2
+      exit 2
+    fi
+    mkdir -p "$CFG"
+    git -C "$CFG" init -q
+    git -C "$CFG" remote add origin "$REMOTE"
+    git -C "$CFG" fetch -q origin
+    # `|| true`: the loop's exit status is the last -e test, and under `set -e` a final
+    # missing path would abort the whole adopt before it started.
+    clobber=$(git -C "$CFG" ls-tree -r --name-only origin/main |
+              while read -r f; do [ -e "$CFG/$f" ] && printf '%s\n' "$f"; done || true)
+    if [ -n "$clobber" ]; then
+      mkdir -p "$BAK"
+      printf '%s\n' "$clobber" | tar -C "$CFG" -cf - -T - | tar -C "$BAK" -xf -
+      echo "adopt:  backed up $(printf '%s\n' "$clobber" | wc -l | tr -d ' ') existing file(s) -> $BAK"
+    fi
+    git -C "$CFG" checkout -f -B main origin/main >/dev/null 2>&1
+    if [ ! -f "$CFG/settings.json" ] && [ -f "$CFG/settings.example.json" ]; then
+      cp "$CFG/settings.example.json" "$CFG/settings.json"
+      chmod 600 "$CFG/settings.json"
+      echo "adopt:  settings.json created from the example -- fill in <AWS_ACCOUNT_ID>"
+    fi
+    if [ -d "$HOME/.local/bin" ] && [ ! -e "$HOME/.local/bin/claude-sync" ]; then
+      ln -s "$CFG/commands/bin/claude-sync" "$HOME/.local/bin/claude-sync"
+      echo "adopt:  linked ~/.local/bin/claude-sync"
+    fi
+    echo "adopt:  $CFG now tracks $REMOTE at $(git -C "$CFG" rev-parse --short HEAD)"
+    echo "        plugins/ ships manifests only -- reinstall them; skills symlinked into"
+    echo "        ~/.agents/skills dangle until reinstalled (sources: agents-skill-lock.json)"
+    exit 0
+    ;;
   push) ;;
   *)
-    echo "usage: claude-sync [push|pull]" >&2
+    echo "usage: claude-sync [push|pull|adopt]" >&2
     exit 2
     ;;
 esac

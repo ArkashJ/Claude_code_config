@@ -28,16 +28,26 @@ install trees) is ignored — see `.gitignore`. This repo is the whole config su
 claude-sync        # commit + push this machine's config, and publish
                    # commands/*.md to arkashj.com/skills
 claude-sync pull   # fast-forward this machine from the remote
+claude-sync adopt  # one-time: point an existing ~/.claude at this remote
 ```
 
 ## New machine
 
+Empty `~/.claude`, or one already full of local config — same command either way:
+
 ```sh
-git clone git@github.com:ArkashJ/Claude_code_config.git ~/.claude
-cp ~/.claude/settings.example.json ~/.claude/settings.json   # then fill in <AWS_ACCOUNT_ID>
-chmod 600 ~/.claude/settings.json
-ln -s ~/.claude/commands/bin/claude-sync ~/.local/bin/claude-sync
+curl -fsSL https://raw.githubusercontent.com/ArkashJ/Claude_code_config/main/commands/bin/claude-sync | sh -s adopt
 ```
+
+`adopt` inits the repo in place rather than cloning, so nothing has to be moved out of
+the way first. Runtime state (`projects/`, caches, `settings.json`, `settings.local.json`)
+is gitignored and survives untouched; the tracked files it *would* overwrite are copied to
+`~/claude-config-backup-<timestamp>/` first. It refuses to run if `~/.claude` is already a
+git repo — that case is `claude-sync pull`. Set `REMOTE=` to adopt a different fork.
+
+Two things it cannot restore: `plugins/` ships manifests only (reinstall the plugins), and
+the third-party skills are symlinks into `~/.agents/skills` that dangle until reinstalled
+from the URLs in `agents-skill-lock.json`.
 
 Then reinstall the 9 third-party skills listed in `agents-skill-lock.json` to resolve
 the dangling symlinks under `skills/`. Everything else is already in this repo:
