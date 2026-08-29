@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset=utf-8><title>ui-stress self-test fixture</title>
+<!-- Every rule the probe claims to detect is planted here exactly once.
+     If probe.js stops finding one of them, selftest.sh fails. -->
+<style>
+  :root{--bg:#ffffff;--fg:#111111;--accent:#2563eb;--muted:#6b7280;--line:#e5e7eb}
+  body{margin:0;font:14px system-ui;background:var(--bg);color:var(--fg)}
+  .wide{width:900px;height:20px;background:var(--accent)}         /* overflow-x */
+  .clip{width:120px;height:18px;overflow:hidden}                   /* text-clipped */
+  .stack{position:relative}
+  .overlay{position:absolute;inset:0;background:rgba(0,0,0,.2)}    /* covered */
+  .tiny{width:16px;height:16px;padding:0}                          /* touch-target */
+  .ghost{width:0;height:0;padding:0;border:0;overflow:hidden}      /* zero-size-interactive */
+  .stray{color:#ff00aa}                                            /* off-token-color */
+  button:focus{outline:none}                                       /* no-focus-indicator */
+</style></head><body>
+<main>
+  <div class="wide"></div>
+  <div class="clip">This sentence is far too long to fit inside its little box</div>
+  <div class="stack"><button id="pay">Pay now</button><div class="overlay"></div></div>
+  <button class="tiny"></button>
+  <button class="ghost" tabindex="0">x</button>
+  <img src="/does-not-exist.png">
+  <ul id="results"></ul>
+  <p class="stray">drifted colour</p>
+  <input placeholder="Email">
+</main>
+</body></html>

@@ -1,0 +1,7 @@
+- main [ref=e2]:
+  - generic [ref=e4]: This sentence is far too long to fit inside its little box
+  - button "Pay now" [ref=e6]
+  - button [ref=e8]
+  - list
+  - paragraph [ref=e10]: drifted colour
+  - textbox "Email" [ref=e11]
