@@ -33,6 +33,7 @@ Everything below L1 is void if L1 is wrong. Check it first, always.
 | 1.7 | Env var present in CI, absent in the runtime image | S |
 | 1.8 | Build succeeded with a stub/fallback module aliased in | S |
 | 1.9 | Verified on preview, shipped from prod — different pipeline † | H |
+| 1.10 | Route's first visit failed, retry succeeded — intermittent; reported as `route.flaky`, never as a silent pass | R |
 
 ## L2 — Arrival: the data never gets there
 
@@ -50,6 +51,7 @@ Everything below L1 is void if L1 is wrong. Check it first, always.
 | 2.19 | Retry storm → rate limit → looks like "no data" | R |
 | 2.20 | CORS preflight failure — invisible behind a dev proxy | R |
 | 2.21 | Parse failure returns `undefined`, treated as empty | R |
+| 2.22 | Same-origin JSON array carried N>0 records; every list on the page rendered zero rows — the data arrived and was never rendered | R |
 
 ## L3 — Synchronisation: data arrives, then diverges
 
@@ -60,7 +62,7 @@ it statically, with blast radius.
 |---|---|---|
 | 3.22 | **Server entity copied into a client store** — a second source of truth the query cache cannot invalidate | S |
 | 3.23 | Mutation with no invalidation → every sibling view stale | S |
-| 3.24 | Invalidation targets the wrong key | S |
+| 3.24 | Invalidation targets the wrong key — nothing the written resource's readers query under; blast radius resolved | S |
 | 3.25 | Optimistic update never reconciled with server truth | G |
 | 3.26 | Optimistic update not rolled back on error | G |
 | 3.27 | Two components own one mutation; only one invalidates | S |
@@ -71,6 +73,7 @@ it statically, with blast radius.
 | 3.32 | Form draft silently overwritten by a background refetch | G |
 | 3.33 | Deleted entity still referenced by a cached list | G |
 | 3.34 | Pagination cache not reset on filter change → mixed pages | G |
+| 3.35 | Write succeeded through the real form, then client-side navigation to a blast-radius route refetched nothing and shows the old value — 3.23/3.24 confirmed live (`--mutate`) | R |
 
 ## L4 — Rendering and lifecycle
 
@@ -118,7 +121,7 @@ Cheapest class to detect, highest hit rate, almost nobody checks it.
 | 6.61 | Back button does not restore list state, scroll, or filters | G |
 | 6.62 | Refresh on a deep link loses required state | G |
 | 6.63 | Unsaved-changes guard missing | S |
-| 6.64 | Submit button covered by a sticky element or modal | R |
+| 6.64 | Interactive element covered by another element — clicks land on the occluder (`interact.click-occluded`; open dialogs and `pointer-events:none` overlays excluded) | R |
 | 6.65 | Focus lost after an action → keyboard user stranded | R |
 | 6.66 | Client validation passes; server rejects with an unhandled error shape | G |
 | 6.67 | Disabled state not conveyed — looks clickable, does nothing | R |
@@ -137,7 +140,7 @@ Cheapest class to detect, highest hit rate, almost nobody checks it.
 | 7.75 | Prototype pollution — merging untrusted payload into an object | S |
 | 7.76 | DOM clobbering — a named element shadowing a global | S |
 | 7.77 | CSP violation blocking a real resource | R |
-| 7.78 | `SameSite`/cookie attributes wrong → auth silently absent cross-site | R |
+| 7.78 | `SameSite=None` cookie without `Secure` — the browser rejects it; auth silently absent (`security.cookie-samesite-none-insecure`) | R |
 
 ## L8 — Responsive and layout
 
@@ -175,6 +178,7 @@ Cheapest class to detect, highest hit rate, almost nobody checks it.
 | 10.98 | Unstable context value → re-render storm, memoisation dead | S |
 | 10.99 | Unbounded list render | S |
 | 10.100 | Bundle size regression | S |
+| 10.101 | Preloaded resource never used — Chrome's own diagnostic, exact-matched (`perf.unused-preload`) | R |
 
 ## L11 — The check itself
 
@@ -269,6 +273,21 @@ module federation make 1.3 (two hosts, different builds) a weekly event. CRDTs
 and offline make 3.30-3.31 the dominant risk. **Configuration, not new code.**
 
 ---
+
+## Evaluated and deliberately not implemented
+
+Each of these was specced far enough to know why it must not ship yet. A rule
+that fires on healthy apps costs more than the class it catches.
+
+| Check | Why not |
+|---|---|
+| duplicate-in-flight-request (2.14's runtime half) | needs a proven guard separating React StrictMode's double-invoke from a real race; ship only with a StrictMode fixture asserted silent |
+| bundle-size-regression (10.100's runtime half) | needs a per-repo build-output path; no universal baseline location in monorepos |
+| render-blocking-head-script | fires on deliberately synchronous analytics snippets — "verify this is intentional" is not a defect claim |
+| missing-live-region-for-async-status (9.92) | scoping unresolved: a live region far from the toast is still a live region; the conservative gate leaves mostly misses |
+| indexeddb-open-error | too narrow — apps touch IndexedDB through libraries that already handle it |
+| deterministic-rendering (render twice, diff) | the noisiest possible rule: timestamps, counters, carousels and A/B buckets are legitimately non-deterministic |
+| CSRF-token-presence | token-auth and SameSite-cookie architectures are both healthy without one; the absence proves nothing |
 
 ## Adding a class
 

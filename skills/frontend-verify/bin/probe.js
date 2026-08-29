@@ -103,55 +103,97 @@ async page => {
     if (small.length)
       add('a11y.tap-target', 'P2', small.length + ' interactive element(s) under 24px (sr-only excluded)', sel(small[0]));
 
+    /* -- L6: a control that cannot be clicked ------------------------------ */
+
+    // elementFromPoint at the control's center must return the control or one
+    // of its own descendants/ancestors; anything else is sitting on top and
+    // eats the click. elementFromPoint already skips pointer-events:none, so a
+    // deliberate click-through overlay never fires this. An OPEN dialog
+    // legitimately occludes everything behind it, so any modal signal
+    // suppresses the whole rule for this capture rather than flagging the
+    // entire background surface.
+    const modalOpen = !!document.querySelector('dialog[open],[role="dialog"],[aria-modal="true"]');
+    if (!modalOpen) {
+      const occluded = [];
+      for (const el of document.querySelectorAll('a[href],button,input,select,textarea,summary,[role="button"],[role="link"],[role="tab"],[role="menuitem"]')) {
+        if (!vis(el) || srOnly(el)) continue;
+        const r = el.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) continue;
+        const hit = document.elementFromPoint(cx, cy);
+        if (!hit || hit === el || el.contains(hit) || hit.contains(el)) continue;
+        // A label wrapping its input is how custom checkboxes are built.
+        if (hit.closest && hit.closest('label') && hit.closest('label').contains(el)) continue;
+        occluded.push([el, hit]);
+      }
+      if (occluded.length)
+        add('interact.click-occluded', 'P1', occluded.length + ' interactive element(s) whose center is covered by another element -- clicks land on '
+          + sel(occluded[0][1]) + ' instead', sel(occluded[0][0]));
+    }
+
+    const noAria = el => !el.getAttribute('aria-label') && !el.getAttribute('aria-labelledby') && !el.getAttribute('title');
     const unlabeled = [...document.querySelectorAll('button,[role="button"],a[href]')].filter(el =>
-      vis(el) && !(el.innerText || '').trim() && !el.getAttribute('aria-label')
-      && !el.getAttribute('aria-labelledby') && !el.getAttribute('title'));
-    if (unlabeled.length)
-      add('a11y.unlabeled-control', 'P2', unlabeled.length + ' control(s) with no accessible name', sel(unlabeled[0]));
+      vis(el) && !(el.innerText || '').trim() && noAria(el));
+    // Form fields get a name from a <label> (wrapping or for=), aria, or title.
+    // A placeholder is accepted here only because browsers fall back to it in
+    // accname computation -- it is still bad practice, but not nameless.
+    const unlabeledFields = [...document.querySelectorAll('input,select,textarea')].filter(el =>
+      vis(el) && el.type !== 'hidden' && noAria(el)
+      && !(el.labels && el.labels.length) && !el.closest('label') && !el.getAttribute('placeholder'));
+    const nameless = unlabeled.concat(unlabeledFields);
+    if (nameless.length)
+      add('a11y.unlabeled-control', 'P2', nameless.length + ' control(s) with no accessible name', sel(nameless[0]));
+
+    /* -- L5: data arrived, page rendered none of it ------------------------ */
+
+    // The cardinality defect's strongest decidable form. The in-page network
+    // recorder captured a same-origin JSON array; if EVERY list on the page has
+    // zero visible rows, the data arrived and was never rendered. Requiring all
+    // lists empty (a populated nav suppresses it) keeps this near zero noise.
+    const net = (window.__fv_net || []).filter(r =>
+      r.method === 'GET' && r.ok && typeof r.arrayLen === 'number'
+      && (!/^https?:/.test(r.url) || r.url.indexOf(location.origin) === 0));
+    const maxLen = net.reduce((n, r) => Math.max(n, r.arrayLen), 0);
+    const totalRows = lists.reduce((n, l) => n + [...l.children].filter(vis).length, 0);
+    if (maxLen > 0 && lists.length && totalRows === 0)
+      add('data.rendered-zero-of-n', 'P1', 'a same-origin API response carried ' + maxLen
+        + ' record(s) but every list on the page rendered zero rows -- the data arrived and was never rendered');
 
     /* -- L10: what the main thread actually did --------------------------- */
 
-    const metrics = { longTasks: 0, longestTaskMs: 0, cls: 0, lcpMs: null, forcedReflows: 0, resources: 0, transferKB: 0 };
+    const metrics = { longTasks: 0, longestTaskMs: 0, cls: 0, lcpMs: null, forcedReflows: 0, resources: 0, transferKB: 0, perfObserved: false };
 
-    const readBuffered = (type, fn) => {
-      try { performance.getEntriesByType(type).forEach(fn); } catch (e) { /* unsupported */ }
-    };
-    readBuffered('longtask', e => { metrics.longTasks++; metrics.longestTaskMs = Math.max(metrics.longestTaskMs, Math.round(e.duration)); });
-    readBuffered('layout-shift', e => { if (!e.hadRecentInput) metrics.cls += e.value; });
-    readBuffered('largest-contentful-paint', e => { metrics.lcpMs = Math.round(e.startTime); });
-    readBuffered('resource', e => { metrics.resources++; metrics.transferKB += (e.transferSize || 0) / 1024; });
+    // longtask / layout-shift / LCP are ONLY visible to observers installed
+    // before navigation (the sweep's init script fills window.__fv_perf);
+    // performance.getEntriesByType returns nothing for them in Chromium. When
+    // the init script is absent (probe run standalone), the perf gates are
+    // marked unmeasured rather than silently reporting clean zeros.
+    const P = window.__fv_perf;
+    if (P) {
+      if (P.flush) try { P.flush(); } catch (e) { /* drained what we could */ }
+      metrics.perfObserved = true;
+      metrics.longTasks = P.longTasks; metrics.longestTaskMs = P.longestTaskMs;
+      metrics.cls = P.cls; metrics.lcpMs = P.lcpMs; metrics.forcedReflows = P.thrashReads;
+    }
+    try { performance.getEntriesByType('resource').forEach(e => { metrics.resources++; metrics.transferKB += (e.transferSize || 0) / 1024; }); } catch (e) { /* unsupported */ }
     metrics.cls = Math.round(metrics.cls * 1000) / 1000;
     metrics.transferKB = Math.round(metrics.transferKB);
 
     // Thresholds are the published Core Web Vitals "needs improvement" line, so
-    // a finding here means something a real user feels, not a preference.
-    if (metrics.longestTaskMs > 200)
-      add('perf.long-task', 'P2', 'longest main-thread task ' + metrics.longestTaskMs + 'ms (' + metrics.longTasks + ' over 50ms) -- input is blocked for that whole window');
-    if (metrics.cls > 0.1)
-      add('perf.layout-shift', 'P2', 'cumulative layout shift ' + metrics.cls + ' (over the 0.1 threshold) -- content moves under the cursor');
-    if (metrics.lcpMs !== null && metrics.lcpMs > 2500)
-      add('perf.lcp', 'P2', 'largest contentful paint at ' + metrics.lcpMs + 'ms (over 2500ms)');
-
-    // Forced synchronous layout: a geometry read after a style write, in the
-    // same frame, makes the browser lay out again. In a loop it is the classic
-    // layout-thrash stall. Counted by patching the read for one frame.
-    metrics.forcedReflows = await new Promise(resolve => {
-      let reads = 0, wrote = false;
-      const proto = Element.prototype;
-      const realRect = proto.getBoundingClientRect;
-      const realStyle = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'style');
-      proto.getBoundingClientRect = function () { if (wrote) { reads++; wrote = false; } return realRect.apply(this, arguments); };
-      const obs = new MutationObserver(() => { wrote = true; });
-      try { obs.observe(document.body, { attributes: true, childList: true, subtree: true }); } catch (e) { /* detached */ }
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        proto.getBoundingClientRect = realRect;
-        if (realStyle) { /* left untouched: we never replaced it */ }
-        obs.disconnect();
-        resolve(reads);
-      }));
-    });
-    if (metrics.forcedReflows > 20)
-      add('perf.layout-thrash', 'P2', metrics.forcedReflows + ' geometry reads interleaved with DOM writes in one frame -- forced synchronous layout');
+    // a finding here means something a real user feels, not a preference. All
+    // gated on perfObserved: an unmeasured metric must never read as a clean one.
+    if (metrics.perfObserved) {
+      if (metrics.longestTaskMs > 200)
+        add('perf.long-task', 'P2', 'longest main-thread task ' + metrics.longestTaskMs + 'ms (' + metrics.longTasks + ' over 50ms) -- input is blocked for that whole window');
+      if (metrics.cls > 0.1)
+        add('perf.layout-shift', 'P2', 'cumulative layout shift ' + metrics.cls + ' (over the 0.1 threshold) -- content moves under the cursor');
+      if (metrics.lcpMs !== null && metrics.lcpMs > 2500)
+        add('perf.lcp', 'P2', 'largest contentful paint at ' + metrics.lcpMs + 'ms (over 2500ms)');
+      // Forced synchronous layout, counted since before app JS ran: a geometry
+      // read after a DOM write in the same frame makes the browser lay out again.
+      if (metrics.forcedReflows > 20)
+        add('perf.layout-thrash', 'P2', metrics.forcedReflows + ' geometry reads interleaved with DOM writes in one frame -- forced synchronous layout');
+    }
 
     /* -- L4: hydration and boundaries ------------------------------------- */
 

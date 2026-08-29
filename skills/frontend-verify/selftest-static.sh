@@ -19,18 +19,38 @@ cat > "$TMP/src/api/contacts.ts" <<'TS'
 import axios from 'axios'
 export async function listContacts() { return axios.get('/api/contacts') }
 export async function createContact(body: unknown) { return axios.post('/api/contacts', body) }
+export async function updateContact(body: unknown) { return axios.put('/api/contacts', body) }
+export async function renameContact(body: unknown) { return axios.patch('/api/contacts', body) }
 TS
 
 # PLANTED: a mutation that writes /api/contacts and invalidates nothing, while
 # two routes render that same resource.  -> syncRisks >= 1
+# PLANTED: a mutation that writes /api/contacts but invalidates ['invoices'] --
+# WRONG-KEY invalidation. Must surface as partial-invalidation, not pass because
+# "it invalidated something". -> syncRisks kind partial-invalidation
+# NOT planted as a risk: useRenameContact invalidates ['contacts'], the right key.
 cat > "$TMP/src/api/hooks.ts" <<'TS'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { createContact, listContacts } from '@/src/api/contacts'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { createContact, listContacts, updateContact, renameContact } from '@/src/api/contacts'
 export function useContacts() {
   return useQuery({ queryKey: ['contacts'], queryFn: listContacts })
 }
 export function useCreateContact() {
   return useMutation({ mutationFn: createContact })
+}
+export function useUpdateContact() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: updateContact,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
+  })
+}
+export function useRenameContact() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: renameContact,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['contacts'] }),
+  })
 }
 TS
 
@@ -103,6 +123,57 @@ export async function listInvoices() { return axios.get('/api/invoices') }
 export async function createInvoice(b: unknown) { return axios.post('/api/invoices', b) }
 TS
 
+# PLANTED: unread-query-error, unread-query-loading (bare useQuery, result not
+# returned, error/loading never read) and -- because this page fetches data with
+# no error.tsx/loading.tsx anywhere in its segment chain -- no-error-boundary
+# and no-loading-boundary.
+mkdir -p "$TMP/app/widgets"
+cat > "$TMP/app/widgets/page.tsx" <<'TSX'
+'use client'
+import { useQuery } from '@tanstack/react-query'
+export default function WidgetsPage() {
+  const { data } = useQuery({ queryKey: ['widgets'], queryFn: () => fetch('/api/widgets') })
+  return <div>{((data as unknown[]) ?? []).length} widgets</div>
+}
+TSX
+
+# PLANTED: derived-state-in-useState, stale-closure, effect-fetch-without-abort,
+# unstable-context-value, unsanitized-html. One instance each.
+mkdir -p "$TMP/src/components"
+cat > "$TMP/src/components/widgets.tsx" <<'TSX'
+import React, { useEffect, useState, createContext } from 'react'
+const ThemeContext = createContext({})
+export function NameBadge(props: { name: string }) {
+  const [name] = useState(props.name)
+  return <span>{name}</span>
+}
+export function Ticker() {
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => console.log(count), 1000)
+    return () => clearInterval(t)
+  }, [])
+  useEffect(() => {
+    fetch('/api/widgets').then((r) => r.json()).then(() => setCount((c) => c + 1))
+  }, [])
+  return (
+    <ThemeContext.Provider value={{ mode: 'dark' }}>
+      <div dangerouslySetInnerHTML={{ __html: (window as any).comment }} />
+    </ThemeContext.Provider>
+  )
+}
+TSX
+
+# PLANTED: external-store-without-sync, prototype-pollution-shape.
+cat > "$TMP/src/lib/legacy.ts" <<'TS'
+export function watch(store: { subscribe: (f: () => void) => void; getState: () => unknown }, render: (s: unknown) => void) {
+  store.subscribe(() => render(store.getState()))
+}
+export function applyRemote(config: Record<string, unknown>, raw: string) {
+  Object.assign(config, JSON.parse(raw))
+}
+TS
+
 fail=0
 INV="$TMP/inventory.json"
 node "$SKILL/bin/inventory.mjs" "$TMP" --stdout > "$INV" || { echo "FAIL: inventory.mjs crashed"; exit 1; }
@@ -117,6 +188,12 @@ check("queries found",          j.counts.queries >= 1,       j.counts.queries);
 check("mutations found",        j.counts.mutations >= 1,     j.counts.mutations);
 check("resource matrix built",  Object.keys(j.resourceMatrix).includes("contacts"), Object.keys(j.resourceMatrix).join(","));
 check("sync risk detected",     j.syncRisks.length >= 1,     j.syncRisks.length);
+const wrongKey = j.syncRisks.find((r) => r.kind === "partial-invalidation");
+check("wrong-key invalidation caught", !!wrongKey && wrongKey.invalidates.includes("invoices"),
+      wrongKey ? wrongKey.detail.slice(0, 90) : "none");
+check("right-key invalidation NOT flagged",
+      !j.syncRisks.some((r) => (r.hook || "") === "useRenameContact"),
+      j.syncRisks.map((r) => r.hook).join(",") || "none");
 check("wrapper query counted",  j.routes.some((r) => r.queries.some((x) => x.via === "useApiQuery")),
       j.routes.flatMap((r) => r.queries).filter((x) => x.via).map((x) => x.via).join(",") || "none");
 check("wrapper mutation counted", j.routes.some((r) => r.mutations.some((x) => x.via === "useQueuedWrite")),
@@ -126,11 +203,21 @@ check("blast radius resolved",  (j.syncRisks[0] && j.syncRisks[0].staleRoutes ||
 process.exit(bad);
 ' "$INV" || fail=1
 
-echo "--- classifier"
-for rule in missing-empty-state index-as-list-key runtime-env-in-client-code server-state-in-client-store submit-without-pending-guard; do
+echo "--- classifier (every rule it defines, one planted instance each)"
+for rule in missing-empty-state index-as-list-key runtime-env-in-client-code \
+            server-state-in-client-store submit-without-pending-guard \
+            unread-query-error unread-query-loading derived-state-in-useState \
+            effect-fetch-without-abort stale-closure unstable-context-value \
+            external-store-without-sync unsanitized-html prototype-pollution-shape \
+            no-error-boundary no-loading-boundary; do
   if grep -q "\"rule\": \"$rule\"" "$TMP/classify.json"; then echo "  ok    $rule"
   else echo "  MISS  $rule  <- planted, rule did not fire"; fail=1; fi
 done
+# The list above must BE the rule set: a rule added to classify.mjs without a
+# plant here is a rule nobody has watched fail.
+nrules=$(grep -oE "add\('[a-zA-Z-]+'" "$SKILL/bin/classify.mjs" | sort -u | wc -l | tr -d ' ')
+if [ "$nrules" = "16" ]; then echo "  ok    16 rules defined, 16 asserted"
+else echo "  FAIL  classify.mjs defines $nrules distinct rules but this selftest asserts 16 -- plant the new one"; fail=1; fi
 
 # ---------------------------------------------------------------------------
 # MONOREPO regression. Reproduces the exact shape that reported modules:1 and

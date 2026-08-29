@@ -9,9 +9,25 @@
   .too-wide { width: 3000px; height: 8px; background: #ddd; }
   .tiny { width: 12px; height: 12px; padding: 0; }
   .skeleton { width: 120px; height: 14px; background: #eee; }
+  input { width: 200px; height: 32px; }
 </style>
+<!-- perf.unused-preload: preloaded, never consumed. Chrome authors the warning. -->
+<link rel="preload" href="/preload-unused.css" as="style">
 <main>
   <h1>Fixture</h1>
+
+  <!-- interact.click-occluded: a transparent overlay covers #buried's center,
+       so clicks land on the overlay. Exactly ONE. Kept near the top so the
+       planted 600px CLS shift cannot push it out of the viewport. -->
+  <div style="position:relative;width:60px;height:44px">
+    <button id="buried" aria-label="buried" style="width:44px;height:44px">Go</button>
+    <div id="overlay" style="position:absolute;inset:0;z-index:9"></div>
+  </div>
+  <!-- must NOT fire: the overlay is pointer-events:none, clicks pass through -->
+  <div style="position:relative;width:60px;height:44px">
+    <button aria-label="reachable" style="width:44px;height:44px">Go</button>
+    <div style="position:absolute;inset:0;z-index:9;pointer-events:none"></div>
+  </div>
 
   <!-- value.leak x4 -->
   <p id="leaks">Total: NaN &middot; Owner: undefined &middot; Payload: [object Object] &middot; Due: Invalid Date</p>
@@ -19,7 +35,9 @@
   <!-- render.stuck-loading -->
   <div class="skeleton" aria-busy="true"></div>
 
-  <!-- render.empty-list-no-state: a list with zero rows and no message near it -->
+  <!-- render.empty-list-no-state: a list with zero rows and no message near it.
+       Also half of data.rendered-zero-of-n: /items.json arrives with 3 records
+       and no list on this page renders any row. -->
   <section><ul id="empty-list"></ul></section>
 
   <!-- layout.h-scroll -->
@@ -29,20 +47,67 @@
   <button class="tiny" aria-label="tiny">x</button>
   <a class="sr-only" href="#main">Skip to content</a>
 
-  <!-- a11y.unlabeled-control: sized well above 24px so it is NOT also a
-       tap-target finding, keeping that assertion unambiguous -->
+  <!-- a11y.unlabeled-control: exactly TWO nameless controls -- this button and
+       the bare input below. Sized well above 24px so neither is also a
+       tap-target finding, keeping that assertion unambiguous. -->
   <button id="nameless" style="width:44px;height:44px"></button>
+  <input id="unlabeled-input">
+
+  <!-- must NOT count as unlabeled: label-wrapped, aria-labeled, placeholder -->
+  <label>Name <input></label>
+  <input aria-label="labeled fine">
+  <input placeholder="search">
 </main>
 <script>
+  // perf.long-task: one deliberate 250ms synchronous stall during load. Only an
+  // observer installed BEFORE navigation can see it -- this is the regression
+  // test for reading longtask/CLS/LCP through getEntriesByType, which returns
+  // nothing after the fact and made the perf gates measure nothing.
+  const t0 = performance.now();
+  while (performance.now() - t0 < 400) { /* burn */ }
+
   // network.http-404, observed through the in-page fetch recorder. Asserted to
   // appear EXACTLY ONCE: Playwright's network layer sees this one too, and the
-  // merge must dedupe rather than double-report.
+  // merge must dedupe rather than double-report. The browser's own
+  // "Failed to load resource" console line must NOT surface as console.error.
   fetch('/missing.json').catch(() => {});
 
+  // data.rendered-zero-of-n: a same-origin JSON array of 3 records that no
+  // list on the page ever renders.
+  fetch('/items.json').catch(() => {});
+
+  // network.waterfall: a dependent chain of 4 requests, each fired only after
+  // the previous one resolved.
+  const link = (u) => fetch(u).then((r) => r.text());
+  setTimeout(() => {
+    link('/?w=1').then(() => link('/?w=2')).then(() => link('/?w=3')).then(() => link('/?w=4'));
+  }, 60);
+
   // perf.layout-thrash: interleave a DOM write and a geometry read in one frame.
+  // Caught by the pre-navigation instrumentation; the old post-settle version
+  // watched an empty frame and counted zero, always.
   const box = document.getElementById('leaks');
   for (let i = 0; i < 40; i++) {
     box.setAttribute('data-i', String(i));
     void box.getBoundingClientRect().width;
   }
+
+  // perf.layout-shift: 600px of content injected above the fold 300ms after
+  // first paint. CLS well over the 0.1 threshold at any sane viewport.
+  setTimeout(() => {
+    const d = document.createElement('div');
+    d.style.height = '600px';
+    document.body.prepend(d);
+  }, 300);
+
+  // console.pageerror: an uncaught throw after load.
+  setTimeout(() => { throw new Error('planted pageerror'); }, 50);
+
+  // console classification: each of these console errors must land in its OWN
+  // class, and exactly one must remain a plain console.error.
+  console.error('planted console error: widget exploded');
+  console.error('ChunkLoadError: Loading chunk 42 failed (planted)');
+  console.error('Hydration failed because the initial UI does not match what was rendered on the server (planted)');
+  console.error('Refused to load the image because it violates the following Content Security Policy directive (planted)');
+  console.error('ResizeObserver loop completed with undelivered notifications (planted)');
 </script>

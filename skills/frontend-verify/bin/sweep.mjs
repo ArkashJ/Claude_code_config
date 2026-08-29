@@ -4,12 +4,20 @@
 //
 //   node sweep.mjs --repo <repoRoot> --base http://localhost:3000
 //                  [--routes /,/dashboard] [--width 1280] [--auth state.json]
-//                  [--leak-check] [--json <path>]
+//                  [--leak-check] [--mutate] [--no-journeys] [--json <path>]
 //
 // --repo anchors everything: the inventory is read from <repo>/.verify/inventory.json
 // and the report is written to <repo>/.verify/sweep.json. Nothing resolves against
 // the current working directory, because this skill runs against many repos and a
 // cwd-relative path drops one repo's report into another's directory.
+//
+// --mutate is OPT-IN and DESTRUCTIVE: it drives real forms and submits real
+// writes to verify that cross-page caches actually refresh. Run it against a
+// dev database only.
+//
+// App-owned journeys: <repo>/verify.journeys.mjs (or .verify/journeys.mjs)
+// exporting [{ name, run(page, { base }) }]. Each runs under the same console/
+// network listeners and gets the full probe applied to wherever it ends up.
 //
 // Playwright is resolved from the TARGET repo, not from here: the skill carries
 // no node_modules and must not pin a version against the repo under test.
@@ -33,6 +41,7 @@ const INVENTORY = arg('inventory', path.join(REPO, '.verify', 'inventory.json'))
 const AUTH = arg('auth');
 const JSON_OUT = arg('json', path.join(REPO, '.verify', 'sweep.json'));
 const PROBE = path.join(path.dirname(new URL(import.meta.url).pathname), 'probe.js');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------------------------------------- playwright */
 
@@ -105,11 +114,17 @@ function routesToSweep() {
   if (fs.existsSync(INVENTORY)) {
     const inv = JSON.parse(fs.readFileSync(INVENTORY, 'utf8'));
     // Dynamic segments need a real id; without one the route 404s and the sweep
-    // reports a false failure. Skip them here and cover them in the journeys,
-    // which have a seeded record to address.
+    // reports a false failure. Skip them here; app-owned journeys (which have a
+    // seeded record to address) are the honest way to cover them.
     return inv.routes.map((r) => r.path).filter((p) => !/[:[]/.test(p));
   }
   return ['/'];
+}
+
+// The dev server WILL hiccup over an hours-long run. Any HTTP response at all
+// means it is up; only a connection-level failure means it is not.
+async function serverAlive() {
+  try { await fetch(BASE + '/', { signal: AbortSignal.timeout(5000) }); return true; } catch { return false; }
 }
 
 /* ------------------------------------------------------------------ sweep */
@@ -126,7 +141,16 @@ if (!routes.length) {
 const probeSrc = fs.readFileSync(PROBE, 'utf8').replace(/^\s*\/\/[^\n]*\n/gm, '').trim();
 const probeFn = eval('(' + probeSrc + ')');
 
-const browser = await playwright.chromium.launch();
+// A launch failure is "could not run", never "found problems": exit 1 here would
+// let a missing browser binary read as an app defect.
+let browser;
+try {
+  browser = await playwright.chromium.launch();
+} catch (e) {
+  console.error('sweep: could not launch chromium -- ' + String(e).split('\n')[0]);
+  console.error('  npx playwright install chromium');
+  process.exit(2);
+}
 const context = await browser.newContext({
   viewport: { width: WIDTH, height: HEIGHT },
   ...(AUTH && fs.existsSync(AUTH) ? { storageState: AUTH } : {}),
@@ -141,6 +165,15 @@ const context = await browser.newContext({
 await context.addInitScript(() => {
   const log = [];
   Object.defineProperty(window, '__fv_net', { get: () => log, configurable: true });
+  const captureArray = (entry, text) => {
+    if (typeof text !== 'string' || text.length > 2_000_000) return;
+    try {
+      const j = JSON.parse(text);
+      const arr = Array.isArray(j) ? j
+        : ['data', 'items', 'results', 'rows', 'records'].map((k) => j && j[k]).find(Array.isArray);
+      if (arr) entry.arrayLen = arr.length;
+    } catch { /* not JSON after all */ }
+  };
   const realFetch = window.fetch;
   window.fetch = async function (...args) {
     const url = String(args[0]?.url ?? args[0] ?? '');
@@ -148,7 +181,10 @@ await context.addInitScript(() => {
     const start = performance.now();
     try {
       const res = await realFetch.apply(this, args);
-      log.push({ url, method, status: res.status, ok: res.ok, start, end: performance.now(), via: 'fetch' });
+      const entry = { url, method, status: res.status, ok: res.ok, start, end: performance.now(), via: 'fetch' };
+      log.push(entry);
+      if (res.ok && (res.headers.get('content-type') ?? '').includes('json'))
+        res.clone().text().then((t) => captureArray(entry, t)).catch(() => {});
       return res;
     } catch (e) {
       log.push({ url, method, status: 0, ok: false, error: String(e), start, end: performance.now(), via: 'fetch' });
@@ -163,15 +199,69 @@ await context.addInitScript(() => {
       const meta = this.__fv;
       if (meta) {
         meta.start = performance.now();
-        this.addEventListener('loadend', () => log.push({ ...meta, status: this.status, ok: this.status >= 200 && this.status < 400, end: performance.now(), via: 'xhr' }));
+        this.addEventListener('loadend', () => {
+          const entry = { ...meta, status: this.status, ok: this.status >= 200 && this.status < 400, end: performance.now(), via: 'xhr' };
+          log.push(entry);
+          try { if (entry.ok && (this.responseType === '' || this.responseType === 'text')) captureArray(entry, this.responseText); } catch { /* opaque */ }
+        });
       }
       return send.apply(this, a);
     };
   }
 });
 
+// Performance instrumentation must be installed BEFORE navigation. Reading
+// performance.getEntriesByType() after the fact returns nothing for longtask /
+// layout-shift / LCP in Chromium (deprecated for those types), so the perf gates
+// would report clean numbers for pages they never measured. Buffered observers
+// from an init script are the supported vantage point; same for layout thrash,
+// which happens during load -- instrumenting it after settle watches an empty frame.
+await context.addInitScript(() => {
+  const perf = { longTasks: 0, longestTaskMs: 0, cls: 0, lcpMs: null, thrashReads: 0 };
+  Object.defineProperty(window, '__fv_perf', { get: () => perf, configurable: true });
+  // Observer callbacks are delivered asynchronously; a reader that does not
+  // drain the pending queue first can race a just-finished entry and miss it.
+  const pending = [];
+  perf.flush = () => pending.forEach(([o, fn]) => o.takeRecords().forEach(fn));
+  const observe = (type, fn) => {
+    try {
+      const o = new PerformanceObserver((l) => l.getEntries().forEach(fn));
+      o.observe({ type, buffered: true });
+      pending.push([o, fn]);
+    } catch { /* unsupported */ }
+  };
+  observe('longtask', (e) => { perf.longTasks++; perf.longestTaskMs = Math.max(perf.longestTaskMs, Math.round(e.duration)); });
+  observe('layout-shift', (e) => { if (!e.hadRecentInput) perf.cls += e.value; });
+  observe('largest-contentful-paint', (e) => { perf.lcpMs = Math.round(e.startTime); });
+  // Layout thrash: a geometry read after a DOM write in the same frame forces a
+  // synchronous reflow. Writes are detected synchronously (a MutationObserver
+  // delivers at the microtask checkpoint, AFTER a sync write/read loop has
+  // already finished, so it would count zero on exactly the code this catches).
+  let wrote = false;
+  const markWrite = (proto, name) => {
+    const real = proto[name];
+    if (!real) return;
+    proto[name] = function (...a) { wrote = true; return real.apply(this, a); };
+  };
+  ['setAttribute', 'appendChild', 'insertBefore', 'removeChild', 'remove'].forEach((n) => markWrite(Element.prototype, n));
+  const realRect = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function (...a) {
+    if (wrote) { perf.thrashReads++; wrote = false; }
+    return realRect.apply(this, a);
+  };
+  const frame = () => { wrote = false; requestAnimationFrame(frame); };
+  requestAnimationFrame(frame);
+});
+
 const report = { base: BASE, width: WIDTH, started: new Date().toISOString(), routes: [], summary: {} };
 const sevOf = (f) => f.severity ?? 'P2';
+
+// Written after every route, not once at the end: hour three of a long run must
+// not be able to take hours one and two with it.
+function writeReport() {
+  fs.mkdirSync(path.dirname(JSON_OUT), { recursive: true });
+  fs.writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));
+}
 
 // Destinations already probed. An unauthenticated sweep of a gated app redirects
 // every route to /login, and probing each one attributes the login page's contents
@@ -179,8 +269,7 @@ const sevOf = (f) => f.severity ?? 'P2';
 // Worse, it reports coverage of routes nobody saw. Measure each destination once.
 const measured = new Set();
 
-for (const route of routes) {
-  const page = await context.newPage();
+function attachListeners(page) {
   const findings = [];
   const requests = [];
   // Keyed method+path+status, so the same failure seen at BOTH the network layer
@@ -191,15 +280,22 @@ for (const route of routes) {
   const push = (kind, severity, detail, at) => findings.push({ kind, severity, detail, at: at ?? '(page)' });
 
   page.on('console', (m) => {
-    if (m.type() !== 'error') return;
     const t = m.text();
+    // Warnings are dropped EXCEPT exact engine-authored diagnostics, which are
+    // zero-noise by construction. A blanket warning capture would bury the report.
+    if (m.type() === 'warning' && /preloaded using link preload but not used/.test(t))
+      return push('perf.unused-preload', 'P3', t.slice(0, 200));
+    if (m.type() !== 'error') return;
+    // The browser logs its own line for every failed request; the network layer
+    // already reports that failure, so counting the log line too doubles it.
+    if (/Failed to load resource/.test(t)) return;
     // ResizeObserver's loop warning is a real signal (an observer callback that
     // writes layout, re-triggering itself) and belongs in its own class.
     if (/ResizeObserver loop/.test(t)) return push('render.resize-observer-loop', 'P2', t.slice(0, 200));
     if (/ChunkLoadError|Loading chunk \d+ failed/.test(t)) return push('delivery.chunk-load', 'P0', t.slice(0, 200));
     if (/Hydration failed|did not match|Text content does not match|#418|#423|#425/.test(t))
       return push('render.hydration-mismatch', 'P0', t.slice(0, 250));
-    if (/Content Security Policy|Refused to (load|execute|connect)/.test(t))
+    if (/Content Security Policy|Refused to (load|execute|connect)|Trusted Types?|TrustedHTML/.test(t))
       return push('security.csp-violation', 'P1', t.slice(0, 200));
     push('console.error', 'P1', t.slice(0, 250));
   });
@@ -211,6 +307,7 @@ for (const route of routes) {
       r.method() + ' ' + u.pathname + ' -- ' + (r.failure()?.errorText ?? 'unknown'));
   });
   page.on('request', (r) => requests.push({ url: r.url(), type: r.resourceType(), start: Date.now(), end: null }));
+  const badCookies = new Set();
   page.on('response', async (res) => {
     const rec = requests.find((x) => x.url === res.url() && x.end === null);
     if (rec) rec.end = Date.now();
@@ -220,26 +317,78 @@ for (const route of routes) {
       reported.add(netKey(res.request().method(), u.pathname, res.status()));
       push('network.http-' + res.status(), res.status() >= 500 ? 'P0' : 'P1', res.request().method() + ' ' + u.pathname + ' -> ' + res.status());
     }
+    // SameSite=None without Secure is not a style nit: browsers REJECT the
+    // cookie, so the guaranteed outcome is auth silently absent. This is a hard
+    // browser rule, not a judgment call -- zero noise when it fires.
+    try {
+      const sc = (await res.allHeaders())['set-cookie'];
+      if (!sc) return;
+      for (const line of sc.split('\n')) {
+        if (!/samesite=none/i.test(line) || /;\s*secure/i.test(line)) continue;
+        const name = line.split('=')[0].trim();
+        if (badCookies.has(name)) continue;
+        badCookies.add(name);
+        push('security.cookie-samesite-none-insecure', 'P1',
+          'cookie "' + name + '" set with SameSite=None and no Secure on ' + u.pathname + ' -- browsers reject it; whatever it carries is silently absent');
+      }
+    } catch { /* response gone */ }
   });
+  return { findings, requests, reported, netKey, push };
+}
+
+// Merge what the page itself saw. On a service-worker app this is the ONLY
+// source with anything in it; on a normal app it agrees with Playwright and
+// the dedupe keeps findings from doubling.
+async function mergeInPage(page, L) {
+  let inPage = [];
+  try { inPage = await page.evaluate(() => (window.__fv_net ?? []).map((r) => ({ ...r }))); } catch { /* page closed */ }
+  const seen = new Set(L.requests.map((r) => r.url));
+  for (const r of inPage) {
+    let abs = r.url, pathname = r.url;
+    try { const u = new URL(r.url, BASE); abs = u.href; pathname = u.pathname; } catch { /* keep raw */ }
+    const key = L.netKey(r.method, pathname, r.status);
+    if (!L.reported.has(key)) {
+      if (r.status >= 400) {
+        L.reported.add(key);
+        L.push('network.http-' + r.status, r.status >= 500 ? 'P0' : 'P1', r.method + ' ' + pathname + ' -> ' + r.status + ' (seen in-page)');
+      } else if (!r.ok && r.status === 0) {
+        L.reported.add(key);
+        L.push('network.requestfailed', 'P1', r.method + ' ' + pathname + ' -- ' + (r.error ?? 'failed') + ' (seen in-page)');
+      }
+    }
+    if (!seen.has(abs)) L.requests.push({ url: abs, type: 'fetch', start: r.start, end: r.end, inPageOnly: true });
+  }
+  return inPage;
+}
+
+const settleAndLand = async (page, route) => {
+  // Readiness is NOT networkidle: long polling, websockets and background
+  // refetches keep the network busy forever, and a capture taken before the
+  // client renders measures nothing at all.
+  await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(
+    () => { const r = document.querySelector('#root,#__next,[data-reactroot],main') || document.body; return r && (r.innerText || '').trim().length > 1; },
+    { timeout: 8000 },
+  ).catch(() => {});
+  await page.waitForTimeout(SETTLE_MS);
+  let landedPath = route;
+  try { landedPath = new URL(page.url()).pathname.replace(/\/$/, '') || '/'; } catch { /* keep */ }
+  return landedPath;
+};
+
+async function sweepRoute(route) {
+  const page = await context.newPage();
+  const L = attachListeners(page);
+  const { push } = L;
 
   let probe = { findings: [], metrics: {} };
   let redirectedTo = null;
+  let unreachable = false;
   try {
     const resp = await page.goto(BASE + route, { waitUntil: 'domcontentloaded', timeout: 30000 });
     if (resp && resp.status() >= 400) push('route.status-' + resp.status(), 'P0', 'route returned HTTP ' + resp.status());
-    // Readiness is NOT networkidle: long polling, websockets and background
-    // refetches keep the network busy forever, and a capture taken before the
-    // client renders measures nothing at all.
-    await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {});
-    await page.waitForFunction(
-      () => { const r = document.querySelector('#root,#__next,[data-reactroot],main') || document.body; return r && (r.innerText || '').trim().length > 1; },
-      { timeout: 8000 },
-    ).catch(() => {});
-    await page.waitForTimeout(SETTLE_MS);
+    const landedPath = await settleAndLand(page, route);
 
-    // Where did we actually land?
-    let landedPath = route;
-    try { landedPath = new URL(page.url()).pathname.replace(/\/$/, '') || '/'; } catch { /* keep */ }
     const wanted = route.replace(/\/$/, '') || '/';
     if (landedPath !== wanted) {
       push('route.not-reached', 'P1', 'requested ' + wanted + ' but landed on ' + landedPath
@@ -270,36 +419,20 @@ for (const route of routes) {
     }
   } catch (e) {
     push('route.unreachable', 'P0', String(e).split('\n')[0].slice(0, 200));
+    unreachable = true;
   }
 
-  // Merge what the page itself saw. On a service-worker app this is the ONLY
-  // source with anything in it; on a normal app it agrees with Playwright and
-  // the dedupe below keeps findings from doubling.
-  let inPage = [];
-  try { inPage = await page.evaluate(() => (window.__fv_net ?? []).map((r) => ({ ...r }))); } catch { /* page closed */ }
-  const seen = new Set(requests.map((r) => r.url));
-  for (const r of inPage) {
-    let abs = r.url, pathname = r.url;
-    try { const u = new URL(r.url, BASE); abs = u.href; pathname = u.pathname; } catch { /* keep raw */ }
-    const key = netKey(r.method, pathname, r.status);
-    if (!reported.has(key)) {
-      if (r.status >= 400) {
-        reported.add(key);
-        push('network.http-' + r.status, r.status >= 500 ? 'P0' : 'P1', r.method + ' ' + pathname + ' -> ' + r.status + ' (seen in-page)');
-      } else if (!r.ok && r.status === 0) {
-        reported.add(key);
-        push('network.requestfailed', 'P1', r.method + ' ' + pathname + ' -- ' + (r.error ?? 'failed') + ' (seen in-page)');
-      }
-    }
-    if (!seen.has(abs)) requests.push({ url: abs, type: 'fetch', start: r.start, end: r.end, inPageOnly: true });
-  }
-  if (!requests.some((r) => r.type === 'xhr' || r.type === 'fetch') && inPage.length === 0)
+  const inPage = await mergeInPage(page, L);
+  // Only for routes actually reached: a redirected route already carries
+  // route.not-reached, and 43 copies of "no traffic" on a gated app are 43
+  // restatements of that one finding.
+  if (!redirectedTo && !unreachable && !L.requests.some((r) => r.type === 'xhr' || r.type === 'fetch') && inPage.length === 0)
     push('verify.no-data-traffic', 'P2', 'no data requests observed at either the network layer or in-page -- either this route needs none, or the sweep is measuring nothing');
 
   // Request waterfall: B starting right after A finished, repeatedly, is a
   // dependent chain. Every link is a full round trip added to time-to-data, and
   // the page is partially populated at every step of it.
-  const api = requests.filter((r) => (r.type === 'xhr' || r.type === 'fetch') && r.end);
+  const api = L.requests.filter((r) => (r.type === 'xhr' || r.type === 'fetch') && r.end);
   api.sort((a, b) => a.start - b.start);
   let chain = 1, worst = 1;
   for (let i = 1; i < api.length; i++) {
@@ -308,11 +441,161 @@ for (const route of routes) {
   }
   if (worst >= 3) push('network.waterfall', 'P2', worst + ' data requests fired in a dependent chain -- each one is a round trip before the page is complete');
 
-  report.routes.push({
-    route, redirectedTo, findings: [...findings, ...(probe.findings ?? [])], metrics: probe.metrics ?? {},
-    apiRequests: api.length, ...(probe.skipped ? { skipped: probe.skipped } : {}),
-  });
   await page.close();
+  return {
+    record: {
+      route, redirectedTo, findings: [...L.findings, ...(probe.findings ?? [])], metrics: probe.metrics ?? {},
+      apiRequests: api.length, ...(probe.skipped ? { skipped: probe.skipped } : {}),
+    },
+    unreachable,
+  };
+}
+
+let i = 0;
+for (const route of routes) {
+  i++;
+  // Liveness first: when the dev server has died, every remaining route would
+  // report route.unreachable -- 40 copies of one infrastructure failure dressed
+  // up as app defects. One retry covers a restart-in-progress.
+  if (!(await serverAlive())) {
+    await wait(2000);
+    if (!(await serverAlive())) {
+      report.aborted = 'server unreachable at route ' + i + '/' + routes.length + ' (' + route + ') -- partial results kept';
+      writeReport();
+      console.error('sweep: ' + report.aborted);
+      process.exit(2);
+    }
+  }
+  let { record, unreachable } = await sweepRoute(route);
+  // One retry for a route that timed out or dropped: a transient hiccup that
+  // passes on retry is FLAKY, which is a fact worth keeping, not a pass.
+  if (unreachable) {
+    const again = await sweepRoute(route);
+    if (!again.unreachable) {
+      record = again.record;
+      record.flaky = true;
+      record.findings.push({ kind: 'route.flaky', severity: 'P2', at: '(page)', detail: 'first visit failed, retry succeeded -- intermittent' });
+    }
+  }
+  report.routes.push(record);
+  writeReport();
+}
+
+/* -------------------------------------------------- app-owned journeys */
+
+// A universal journey generator is brittle over-engineering; the app's own
+// critical flows are the app's to script. What the skill supplies is the harness:
+// each journey runs under the full console/network listeners, and wherever it
+// ends up gets the whole probe. Interaction coverage without inventing intent.
+const journeyFiles = [path.join(REPO, 'verify.journeys.mjs'), path.join(REPO, '.verify', 'journeys.mjs')];
+const journeyFile = journeyFiles.find((f) => fs.existsSync(f));
+if (journeyFile && !flag('no-journeys')) {
+  let journeys = [];
+  try {
+    const mod = await import(pathToFileURL(journeyFile).href);
+    journeys = mod.default ?? mod.journeys ?? [];
+  } catch (e) {
+    report.routes.push({ route: '(journeys)', metrics: {}, findings: [{ kind: 'journey.load-failed', severity: 'P1', at: journeyFile, detail: String(e).split('\n')[0].slice(0, 200) }] });
+  }
+  for (const j of journeys) {
+    const page = await context.newPage();
+    const L = attachListeners(page);
+    let probe = { findings: [], metrics: {} };
+    try {
+      await page.goto(BASE + (j.start ?? '/'), { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await settleAndLand(page, j.start ?? '/');
+      await j.run(page, { base: BASE, settle: () => page.waitForTimeout(SETTLE_MS) });
+      await page.waitForTimeout(SETTLE_MS);
+      probe = await probeFn(page);
+    } catch (e) {
+      L.push('journey.failed', 'P0', (j.name ?? 'journey') + ': ' + String(e).split('\n')[0].slice(0, 200));
+    }
+    await mergeInPage(page, L);
+    report.routes.push({ route: '(journey: ' + (j.name ?? 'unnamed') + ')', findings: [...L.findings, ...probe.findings], metrics: probe.metrics });
+    writeReport();
+    await page.close();
+  }
+}
+
+/* ------------------------------------------- mutation replay (opt-in, writes!) */
+
+// The runtime half of the syncRisks finding. Static analysis says "this write
+// invalidates nothing, these routes render it"; this proves it in a real browser:
+// fill the form, submit, client-side navigate to a blast-radius route, and check
+// whether ANY refetch of the written resource happened or the new value shows.
+// Direct API calls cannot test this -- the app's cache only invalidates inside
+// its own mutation callbacks, so the write must go through the app's own UI.
+if (flag('mutate') && fs.existsSync(INVENTORY)) {
+  const inv = JSON.parse(fs.readFileSync(INVENTORY, 'utf8'));
+  const risks = (inv.syncRisks ?? []).filter((r) => r.endpoint && r.route && (r.staleRoutes ?? []).length && !/[:[]/.test(r.route));
+  const lastSeg = (ep) => ep.split('?')[0].split('/').filter((s) => s && !/^(api|v\d+)$/.test(s)).pop() ?? '';
+  for (const risk of risks) {
+    const page = await context.newPage();
+    // No invariant listeners here on purpose: a form filled with sentinel data
+    // legitimately provokes validation errors, and reporting the app's reaction
+    // to synthetic input as findings would be noise. This phase reports only
+    // what it exists to prove: staleness after a successful write.
+    const sentinel = 'fv-probe-' + Date.now();
+    const findings = [];
+    try {
+      await page.goto(BASE + risk.route, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await settleAndLand(page, risk.route);
+      const hasForm = await page.evaluate(() => !!document.querySelector('form input, form textarea'));
+      if (!hasForm) { report.routes.push({ route: '(mutate: ' + risk.route + ')', metrics: {}, findings: [], skipped: 'no form on the mutation route -- cover this risk with a journey' }); await page.close(); continue; }
+
+      for (const h of await page.$$('form input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=file]), form textarea')) {
+        const type = ((await h.getAttribute('type')) ?? 'text').toLowerCase();
+        const value = type === 'email' ? sentinel + '@example.com'
+          : type === 'number' ? '2'
+          : type === 'url' ? 'https://example.com/' + sentinel
+          : type === 'date' ? '2026-01-02'
+          : type === 'password' ? sentinel
+          : sentinel;
+        await h.fill(value).catch(() => {});
+      }
+      const tMark = await page.evaluate(() => performance.now());
+      await page.evaluate(() => { const f = document.querySelector('form'); if (f.requestSubmit) f.requestSubmit(); else f.submit(); });
+
+      // Wait for the write to show up in the in-page log.
+      let write = null;
+      for (let t = 0; t < 25 && !write; t++) {
+        await page.waitForTimeout(200);
+        write = await page.evaluate((mark) =>
+          (window.__fv_net ?? []).find((r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) && r.start > mark) ?? null, tMark);
+      }
+      if (!write) {
+        report.routes.push({ route: '(mutate: ' + risk.route + ')', metrics: {}, findings: [], skipped: 'submit produced no write (validation? different trigger?) -- cover this risk with a journey' });
+        await page.close(); continue;
+      }
+      if (write.status >= 400) {
+        findings.push({ kind: 'mutate.write-rejected', severity: 'P2', at: risk.route, detail: write.method + ' ' + write.url + ' -> ' + write.status + ' from a generically filled form -- not proof of a defect, but the risk stays unverified' });
+      } else {
+        const seg = lastSeg(risk.endpoint);
+        for (const staleRoute of risk.staleRoutes.filter((p) => !/[:[]/.test(p)).slice(0, 4)) {
+          // Client-side navigation only: a full page load rebuilds every cache
+          // and proves nothing about invalidation.
+          const link = await page.$('a[href="' + staleRoute + '"], a[href="' + staleRoute + '/"]');
+          if (!link) continue;
+          await link.click().catch(() => {});
+          await page.waitForTimeout(SETTLE_MS);
+          const { refetched, sentinelSeen } = await page.evaluate(({ after, seg, sentinel }) => ({
+            refetched: (window.__fv_net ?? []).some((r) => r.method === 'GET' && r.end > after && r.url.includes(seg)),
+            sentinelSeen: ((document.body && document.body.innerText) || '').includes(sentinel),
+          }), { after: write.end, seg, sentinel });
+          if (!refetched && !sentinelSeen) {
+            findings.push({ kind: 'sync.stale-after-write', severity: 'P0', at: staleRoute,
+              detail: write.method + ' ' + risk.endpoint + ' succeeded on ' + risk.route + ', then client-side navigation to ' + staleRoute
+                + ' refetched nothing and does not show the new value -- the cross-page cache is stale (static finding ' + (risk.hook ?? risk.mutation) + ' confirmed at runtime)' });
+          }
+        }
+      }
+    } catch (e) {
+      findings.push({ kind: 'mutate.failed', severity: 'P2', at: risk.route, detail: String(e).split('\n')[0].slice(0, 200) });
+    }
+    report.routes.push({ route: '(mutate: ' + risk.route + ')', metrics: {}, findings });
+    writeReport();
+    await page.close();
+  }
 }
 
 /* ----------------------------------------------------- leak check (opt-in) */
@@ -353,18 +636,20 @@ await browser.close();
 const all = report.routes.flatMap((r) => r.findings.map((f) => ({ ...f, route: r.route })));
 const bySev = all.reduce((a, f) => ((a[sevOf(f)] = (a[sevOf(f)] ?? 0) + 1), a), {});
 const byKind = all.reduce((a, f) => ((a[f.kind] = (a[f.kind] ?? 0) + 1), a), {});
-report.summary = { routes: report.routes.length, findings: all.length, ...bySev };
+const reached = report.routes.filter((r) => !r.redirectedTo && !r.route.startsWith('(')).length;
+const swept = report.routes.filter((r) => !r.route.startsWith('(')).length;
+// Every summary field is set BEFORE the final serialize; fields added after a
+// write exist only in this process's memory and never reach the report.
+report.summary = {
+  routes: report.routes.length, routesRequested: swept, routesReached: reached,
+  findings: all.length, ...bySev,
+};
 report.finished = new Date().toISOString();
+writeReport();
 
-fs.mkdirSync(path.dirname(JSON_OUT), { recursive: true });
-fs.writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));
-
-const reached = report.routes.filter((r) => !r.redirectedTo).length;
-report.summary.routesRequested = report.routes.length;
-report.summary.routesReached = reached;
-console.log('\n  ' + BASE + '  ' + report.routes.length + ' routes at ' + WIDTH + 'px');
-if (reached < report.routes.length)
-  console.log('  REACHED ' + reached + '/' + report.routes.length + ' -- the rest redirected (auth?); they were NOT measured');
+console.log('\n  ' + BASE + '  ' + swept + ' routes at ' + WIDTH + 'px');
+if (reached < swept)
+  console.log('  REACHED ' + reached + '/' + swept + ' -- the rest redirected (auth?); they were NOT measured');
 console.log('  ' + all.length + ' findings  ' + Object.entries(bySev).map(([k, v]) => k + ':' + v).join('  ') + '\n');
 for (const [kind, n] of Object.entries(byKind).sort((a, b) => b[1] - a[1])) {
   const first = all.find((f) => f.kind === kind);

@@ -2,24 +2,32 @@
 # One command. Inventory -> classify -> sweep, in that order, cheapest first.
 #
 #   verify.sh <repoRoot> [--base URL] [--auth state.json] [--width N] [--quiet]
+#                        [--mutate] [--ratchet]
 #
 #   verify.sh /path/to/repo                          static only, seconds, no install
 #   verify.sh /path/to/repo --base http://localhost:3000   + the runtime sweep
 #
-# Exit: 0 clean · 1 P0/P1 findings · 2 could not run.
+#   --mutate   DESTRUCTIVE, opt-in: drives real forms to prove sync risks at
+#              runtime. Dev database only.
+#   --ratchet  fix-loop guard: total findings may never exceed the best run seen
+#              (.verify/ratchet.json); the baseline tightens automatically.
+#
+# Exit: 0 clean · 1 P0/P1 findings (or ratchet regression) · 2 could not run.
 # That exit code is the definition of done -- it is what a Stop hook, a
 # pre-commit hook or CI reads. Everything else here is reporting.
 set -uo pipefail
 
 SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO=""; BASE=""; AUTH=""; WIDTH=""; QUIET=0
+REPO=""; BASE=""; AUTH=""; WIDTH=""; QUIET=0; MUTATE=0; RATCHET=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --base)  BASE="${2:-}"; shift 2 ;;
     --auth)  AUTH="${2:-}"; shift 2 ;;
     --width) WIDTH="${2:-}"; shift 2 ;;
     --quiet) QUIET=1; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    --mutate) MUTATE=1; shift ;;
+    --ratchet) RATCHET=1; shift ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) [ -z "$REPO" ] && REPO="$1" || true; shift ;;
   esac
 done
@@ -70,6 +78,7 @@ if [ -n "$BASE" ]; then
   args=( --repo "$REPO" --base "$BASE" )
   [ -n "$AUTH" ]  && args+=( --auth "$AUTH" )
   [ -n "$WIDTH" ] && args+=( --width "$WIDTH" )
+  [ "$MUTATE" -eq 1 ] && args+=( --mutate )
   node "$SKILL/bin/sweep.mjs" "${args[@]}" >"$OUT/sweep.log" 2>&1
   sw=$?
   [ "$QUIET" -eq 1 ] || sed -n '2,40p' "$OUT/sweep.log"
@@ -93,6 +102,31 @@ if [ "${ROUTES:-0}" -eq 0 ]; then
   echo "  repo, or its router is not one inventory.mjs recognises (Next app/pages," >&2
   echo "  react-router config, or a src/routes file convention)." >&2
   exit 2
+fi
+
+# --- ratchet (opt-in): a fix loop that trades one finding for two is going
+# backwards, and an agent mid-loop will not notice on its own. Total findings
+# (every severity, all phases) may never exceed the best run seen; the baseline
+# tightens itself on every improvement. Static-only and runtime runs measure
+# different things, so a mode switch resets the baseline instead of comparing them.
+if [ "$RATCHET" -eq 1 ]; then
+  ROUT=/dev/stdout; [ "$QUIET" -eq 1 ] && ROUT=/dev/null
+  node -e '
+    const fs = require("fs");
+    const out = process.argv[1], mode = process.argv[2];
+    const j = (f) => { try { return JSON.parse(fs.readFileSync(out + "/" + f, "utf8")); } catch { return null; } };
+    const inv = j("inventory.json"), cls = j("classify.json"), sw = mode === "runtime" ? j("sweep.json") : null;
+    const total = (inv?.syncRisks?.length ?? 0) + (cls?.counts?.total ?? 0) + (sw?.summary?.findings ?? 0);
+    const file = out + "/ratchet.json";
+    const prev = j("ratchet.json");
+    if (prev && prev.mode === mode && total > prev.best) {
+      console.error("  RATCHET  " + total + " findings, best was " + prev.best + " -- this change went backwards; fix or revert it (delete .verify/ratchet.json only to accept a known regression)");
+      process.exit(1);
+    }
+    const best = prev && prev.mode === mode ? Math.min(prev.best, total) : total;
+    fs.writeFileSync(file, JSON.stringify({ mode, best, last: total, at: new Date().toISOString() }, null, 2));
+    console.log("  ratchet  " + total + " findings (best " + best + ")");
+  ' "$OUT" "$([ -n "$BASE" ] && echo runtime || echo static)" >"$ROUT" || rc=1
 fi
 
 say ""

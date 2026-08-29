@@ -24,6 +24,20 @@ grows only as fast as you write it, and the next thing you prompt into existence
 is uncovered. This skill enumerates **invariants** instead: properties that hold
 on every route forever, written once, applying to code that does not exist yet.
 
+## What this is, and is not
+
+A **supplement** to typechecking, linting, application tests, app-owned
+Playwright journeys and visual regression — not their replacement. It automates
+the layer none of those cover (universal runtime invariants, cross-page cache
+coherence, the defect classes decidable from source), and it hands business
+intent back to you as one question per entity. It does not fix bugs: it emits
+file/line findings and a non-zero exit code, and the agent driving it patches
+the root cause and reruns the gate — detection and repair stay separate on
+purpose, because a tool that grades its own fixes is a tool that learns to
+grade generously. Static rules are heuristic (regex + import graph, not an AST
+— see the header of `inventory.mjs` for the trade); the runtime invariants are
+measured, not inferred.
+
 ## Assert at the boundary that does not change
 
 Types, store patterns and framework idioms are per-stack; everything asserted
@@ -52,7 +66,9 @@ bash $S/verify.sh /abs/path/to/repo --base http://localhost:3000     # + the run
 Exit: **0** clean · **1** P0/P1 findings · **2** could not run. That exit code is
 the definition of done — it is what a Stop hook, a pre-commit hook, or CI reads.
 
-`--auth state.json` for a gated app, `--width 390` for mobile, `--quiet` for hooks.
+`--auth state.json` for a gated app, `--width 390` for mobile, `--quiet` for
+hooks, `--ratchet` inside a fix loop, and `--mutate` (**destructive**, dev DB
+only) to prove sync risks at runtime by driving real forms.
 
 Run a phase on its own when you want just that one:
 
@@ -88,10 +104,16 @@ names the hook, the endpoint, and every route that goes stale when it runs.
 
 | Phase | Sees | Blind to |
 |---|---|---|
-| `inventory.mjs` | routes, per-route data deps, mutations, entity→route matrix, sync risks, duplicate cache keys | anything conditional at runtime |
+| `inventory.mjs` | routes, per-route data deps, mutations, entity→route matrix, sync risks (no invalidation AND wrong-key invalidation), duplicate cache keys | anything conditional at runtime |
 | `classify.mjs` | missing empty/error/loading branches, server state in client stores, stale closures, unaborted effect fetches, build-time env read at runtime, index keys, unsanitized HTML, unguarded submits | whether the code actually runs |
-| `sweep.mjs` + `probe.js` | console errors, failed requests, HTTP 4xx/5xx, hydration mismatch, chunk-load failure, CSP violations, DOM value leaks, stuck spinners, empty lists with no empty state, horizontal scroll, tap targets, long tasks, CLS, LCP, layout thrash, request waterfalls, heap retained across navigation | business intent |
+| `sweep.mjs` + `probe.js` | console errors, failed requests, HTTP 4xx/5xx, hydration mismatch, chunk-load failure, CSP violations, DOM value leaks, stuck spinners, empty lists with no empty state, data fetched but zero rows rendered, horizontal scroll, tap targets, unlabeled controls and fields, long tasks, CLS, LCP, layout thrash, request waterfalls, heap retained across navigation | business intent |
+| `--mutate` replay | whether a real write through a real form leaves a blast-radius route stale under client-side navigation | which payload a form considers valid |
+| your journeys (`verify.journeys.mjs`) | create/update/delete flows, dynamic routes, role gates — scripted once, then swept under every invariant above | — |
 | you | "this total must equal the sum of that column" | everything above, reliably |
+
+Router recognition is Next (app + pages), react-router/route-config literals,
+and `src/routes` file conventions. Anything else inventories **zero routes and
+exits 2** — inconclusive, never a pass.
 
 That last row is the only part a human must supply, and it is **one question per
 entity**, not per feature.
@@ -106,13 +128,60 @@ Every route, every run, no authoring:
 4. Root renders non-empty text
 5. No loading indicator still mounted after settle
 6. No list with zero rows and no empty state
-7. No `undefined` / `NaN` / `[object Object]` / `Invalid Date` / unresolved template var in the DOM
-8. No horizontal scroll at the tested width
-9. Interactive elements >= 24px (screen-reader-only elements excluded)
-10. Every control has an accessible name
-11. Longest task < 200ms, CLS < 0.1, LCP < 2500ms
-12. No dependent request chain 3 deep
-13. (opt-in `--leak-check`) heap returns after GC across repeated navigation
+7. No API response whose records exist while every list renders zero rows
+8. No `undefined` / `NaN` / `[object Object]` / `Invalid Date` / unresolved template var in the DOM
+9. No horizontal scroll at the tested width
+10. Interactive elements >= 24px (screen-reader-only elements excluded)
+11. Every control has an accessible name (buttons, links, AND form fields)
+12. Longest task < 200ms, CLS < 0.1, LCP < 2500ms — measured by observers
+    installed **before navigation**; unmeasured is reported as unmeasured, never
+    as clean
+13. No interactive element whose center another element covers — clicks that
+    land on an invisible overlay (open dialogs and `pointer-events:none`
+    excluded)
+14. No `SameSite=None` cookie without `Secure` — the browser rejects it, auth
+    silently vanishes
+15. No resource preloaded and never used (Chrome's own diagnostic, exact-matched)
+16. No dependent request chain 3 deep
+17. (opt-in `--leak-check`) heap returns after GC across repeated navigation
+18. (opt-in `--mutate`) after a successful write, every blast-radius route either
+    refetches or shows the new value under client-side navigation
+
+The sweep is hardened for long runs: it liveness-checks the dev server before
+every route (a dead server is one exit-2, not forty fake findings), retries a
+dropped route once and marks a pass-on-retry `route.flaky` instead of clean, and
+writes `sweep.json` incrementally so hour three cannot destroy hours one and two.
+
+## Journeys: the app's flows, the skill's harness
+
+A universal journey generator is brittle over-engineering — inventing what a
+form "should" accept is guessing at intent. So the split is: **you script the
+flow once, the harness supplies everything else.** Drop `verify.journeys.mjs`
+at the repo root (committed, unlike `.verify/`):
+
+```js
+export default [
+  { name: 'create-invoice', start: '/invoices', run: async (page, { base }) => {
+      await page.fill('[name=amount]', '42');
+      await page.click('button[type=submit]');
+      await page.click('a[href="/invoices"]');
+  }},
+];
+```
+
+Each journey runs under the full console/network listeners, and wherever it
+ends up gets the whole probe — so a journey is three lines of clicks, and the
+fourteen invariants above are asserted for free at every step's destination.
+This is how dynamic routes (`/invoices/:id`), role gates and CRUD flows get
+covered: the journey knows a real id; the sweep never guesses one. A journey
+that throws is a P0 (`journey.failed`), not a skipped test.
+
+`--mutate` is the zero-authoring fallback for sync risks specifically: it fills
+the mutation route's form with sentinel values, submits, client-side navigates
+to each statically-computed stale route, and files `sync.stale-after-write` P0
+only when the write succeeded AND no refetch happened AND the sentinel is
+absent. A validation-rejected submit is reported as unverified, never as a
+defect — the app's reaction to synthetic input is not a finding.
 
 ## Readiness, not networkidle
 
@@ -166,30 +235,66 @@ bash ~/.claude/skills/frontend-verify/selftest-static.sh   # no browser needed
 bash ~/.claude/skills/frontend-verify/selftest.sh          # needs Playwright in reach
 ```
 
-Both serve a fixture carrying one planted instance of each class and assert every
-one is found, plus that the known false positives stay silent. **Run these after
-any edit to a rule.** A rule that silently stops matching keeps reporting green.
+The static selftest plants one instance of **all 16 classifier rules** (a meta
+check fails the suite if a 17th rule is added without a plant), the wrong-key
+and no-invalidation sync risks, the wrapper/monorepo/generics traversal shapes,
+and the known false positives that must stay silent. The runtime selftest plants
+20 finding kinds in the fixture, asserts the dedup invariants (one 404 = one
+finding; classified console texts do not double as `console.error`), runs a
+differential check (distinct inputs must yield distinct output), and drives the
+journey and `--mutate` engines against a two-variant SPA — the stale variant
+must be flagged, the fixed one must not. Not planted (still trust-but-unproven):
+real hydration/chunk/CSP events (their console *classification* is tested via
+planted text, not provoked browser events), LCP-over-threshold, redirects/auth,
+and the leak check. **Run both after any edit to a rule.** A rule that silently
+stops matching keeps reporting green.
 
 ## Wiring the gate
 
-Done is an exit code, not a sentence. Add to `.claude/settings.json`:
+Done is an exit code, not a sentence — **and the exit code must survive the
+wiring.** `verify.sh ... || echo BLOCKED` returns echo's 0 and waves every
+failure through; that exact bug shipped in an earlier version of this section.
+A Stop hook blocks on exit 2, so re-exit explicitly:
 
 ```json
 { "hooks": { "Stop": [{ "hooks": [{ "type": "command",
-  "command": "bash ~/.claude/skills/frontend-verify/verify.sh \"$CLAUDE_PROJECT_DIR\" --quiet || echo 'BLOCKED: frontend-verify found P0/P1 findings — run it without --quiet to see them' >&2" }] }] } }
+  "command": "bash ~/.claude/skills/frontend-verify/verify.sh \"$CLAUDE_PROJECT_DIR\" --quiet || { echo 'BLOCKED: frontend-verify found P0/P1 findings — run it without --quiet to see them' >&2; exit 2; }" }] }] } }
 ```
 
-Same command works as a pre-commit hook or a CI step. In CI, pass `--base` against
-the preview deployment so the runtime half runs too.
+In CI and pre-commit hooks, run `verify.sh` bare — its own exit status is the
+gate; anything appended after `||` must end in `exit 1` or the pipeline reads
+green. Pass `--base` against the preview deployment in CI so the runtime half
+runs too.
 
 The agent cannot end a turn claiming done while that exits non-zero.
+
+## The fix loop, and its ratchet
+
+Hours-long autonomous runs are an agent driving this tool, not a feature of it:
+
+```
+run verify.sh --ratchet →  exit 0? done.
+  → pick the top finding → fix the ROOT CAUSE (grep every caller first)
+  → selftests still pass → rerun verify.sh --ratchet → repeat
+```
+
+Two rules keep the loop honest, and both are enforced, not aspirational:
+
+- **The detectors are not the patient.** After any edit to `classify.mjs`,
+  `probe.js` or `sweep.mjs`, both selftests must pass — a "fix" that blinds a
+  rule is caught by its planted instance.
+- **`--ratchet`: total findings never increase.** A fix that trades one finding
+  for two exits 1 with `RATCHET`, and the right response is revert-and-retry,
+  not argue. The baseline (`.verify/ratchet.json`) tightens itself on every
+  improvement; delete it only to knowingly accept a regression.
 
 ## The loop that ends the clicking
 
 Every bug you still find by hand becomes a rule **once**:
 
 1. Reproduce it.
-2. Add the rule to `classify.mjs` (static) or `probe.js` (runtime).
+2. Add the rule to `classify.mjs` (static) or `probe.js` (runtime) — or, if it
+   is a flow bug, three lines in `verify.journeys.mjs`.
 3. Plant an instance in the matching fixture and confirm the selftest catches it.
 4. Fix the bug.
 

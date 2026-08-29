@@ -324,9 +324,11 @@ function callParen(src, after) {
 // human can act on; "hook.ts:61" is a coordinate they have to go look up.
 function enclosingName(src, idx) {
   const before = src.slice(0, idx);
-  const decls = [...before.matchAll(/(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)|(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=/g)];
-  const last = decls[decls.length - 1];
-  return last ? (last[1] ?? last[2]) : null;
+  const decls = [...before.matchAll(/(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)|(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=/g)]
+    .map((d) => d[1] ?? d[2]);
+  // The nearest declaration is often a local inside the hook (const qc =
+  // useQueryClient()); the enclosing HOOK is what a reader can act on.
+  return decls.reverse().find((n) => /^use[A-Z]/.test(n)) ?? decls[0] ?? null;
 }
 
 
@@ -419,10 +421,16 @@ function extractWrapped(file, names, kind) {
     const hook = enclosingName(src, m.index);
     out.push({
       ...rec, hook,
-      writes: invalidates[0] ?? (rec.endpoint ? resource(rec.endpoint) : null) ?? rec.entity,
+      // What it writes is the ENDPOINT'S resource, never the invalidation key:
+      // deriving writes from what it invalidates makes wrong-key invalidation
+      // definitionally impossible to detect -- the mutation that writes
+      // /api/contacts but invalidates ['invoices'] would read as "writes
+      // invoices, invalidates invoices" and pass.
+      writes: (rec.endpoint ? resource(rec.endpoint) : null) ?? rec.entity ?? invalidates[0],
       verb: (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] ?? null,
       invalidates: [...new Set(invalidates)],
       clearsCache: CACHE_OP.test(body) || called.some((n) => INVALIDATOR_NAMES.has(n)),
+      clearsIndirectly: called.some((n) => INVALIDATOR_NAMES.has(n)),
       nonWrite: isNonWrite(rec.via, hook, rec.endpoint),
     });
   }
@@ -502,11 +510,13 @@ function extractMutations(file) {
     const calledNames = [...body.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((x) => x[1]);
     const clearsIndirectly = calledNames.some((n) => INVALIDATOR_NAMES.has(n));
     out.push({
-      writes: invalidates[0] ?? setQuery[0] ?? (endpoint ? endpoint.replace(/^\//, '').split('/')[0] : null),
+      // Endpoint resource first -- see the identical note in extractWrapped.
+      writes: (endpoint ? resource(endpoint) : null) ?? setQuery[0] ?? invalidates[0],
       verb: (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] ?? null,
       endpoint, fnName, hook,
       invalidates: [...new Set([...invalidates, ...setQuery])],
       clearsCache: clearsDirectly || clearsIndirectly,
+      clearsIndirectly,
       nonWrite: isNonWrite(fnName, hook, endpoint)
         || (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] === 'get',
       file: rel(file), line: lineAt(src, m.index),
@@ -540,10 +550,17 @@ for (const e of Object.keys(matrix)) matrix[e] = [...new Set(matrix[e])].sort();
 // /messages/), so key-name matching alone connects almost nothing. The endpoint is
 // the vocabulary both sides actually share.
 const resourceMatrix = {};
+// resource -> the query-key entities that READ it. A mutation's invalidation is
+// written in the readers' key vocabulary (QUERY_KEYS.crm covers a query keyed
+// 'crm' that fetches /api/contacts), so "did it invalidate the right thing" must
+// be judged against these, not against the endpoint's spelling.
+const resourceReaders = {};
 for (const r of routeReport) {
   for (const q of r.queries) {
     const res = resource(q.endpoint);
-    if (res) (resourceMatrix[res] ??= []).push(r.path);
+    if (!res) continue;
+    (resourceMatrix[res] ??= []).push(r.path);
+    if (q.entity) (resourceReaders[res] ??= new Set()).add(q.entity);
   }
 }
 for (const k of Object.keys(resourceMatrix)) resourceMatrix[k] = [...new Set(resourceMatrix[k])].sort();
@@ -554,8 +571,12 @@ const byLoc = new Map(allMutations.map((m) => [`${m.file}:${m.line}`, m]));
 // THE FINDING. Two shapes, both meaning "a write happened and some view still
 // shows the old value" — the cross-page sync bug, located before a browser opens.
 const syncRisks = [];
+// Loose spelling match: 'contact-list' covers 'contacts', 'contacts' covers
+// 'contact'. Prefer a miss to a false positive -- 'people' vs 'persons' is a
+// miss, and that is the right trade.
+const norm = (s) => String(s ?? '').toLowerCase().replace(/[-_./]/g, '').replace(/s$/, '');
 for (const m of byLoc.values()) {
-  if (m.nonWrite || m.clearsCache) continue;   // nothing to go stale, or already handled
+  if (m.nonWrite) continue;                    // nothing to go stale
   // A: writes something and invalidates NOTHING. Every reader of it is stale.
   // staleRoutes null means "blast radius not determined" — the entity could not
   // be resolved. That is NOT the same as zero affected routes, and reporting it
@@ -564,6 +585,10 @@ for (const m of byLoc.values()) {
   const readers = (res ? resourceMatrix[res] : null) ?? (m.writes ? matrix[m.writes] : null) ?? null;
   const name = m.hook ? `${m.hook}()` : `${m.file}:${m.line}`;
   if (!m.invalidates.length) {
+    // Clears the cache through a helper or setQueryData whose keys we cannot
+    // see: assume handled. Only the no-visible-keys case gets this benefit --
+    // a mutation with LITERAL keys is judged on them, below.
+    if (m.clearsCache) continue;
     // Three distinct claims, three severities. "This write leaves route X stale"
     // is evidence; "I could not work out what goes stale" is an admission, and
     // filing them at the same severity makes the strong finding look as soft as
@@ -571,7 +596,7 @@ for (const m of byLoc.values()) {
     const severity = readers?.length ? 'P1' : (m.writes ? 'P2' : 'P3');
     syncRisks.push({
       severity, kind: 'no-invalidation', unresolved: !readers?.length,
-      entity: m.writes ?? res, hook: m.hook, mutation: `${m.file}:${m.line}`, verb: m.verb, endpoint: m.endpoint,
+      route: m.route, entity: m.writes ?? res, hook: m.hook, mutation: `${m.file}:${m.line}`, verb: m.verb, endpoint: m.endpoint,
       invalidates: [], staleRoutes: readers,
       detail: `${name} writes ${m.endpoint ?? m.writes ?? 'server state'} and invalidates no query`
         + (readers?.length ? `; ${readers.length} route(s) render it`
@@ -579,13 +604,22 @@ for (const m of byLoc.values()) {
     });
     continue;
   }
-  // B: invalidates something, but not the entity it writes.
-  if (m.writes && !m.invalidates.includes(m.writes) && readers?.length) {
+  // B: invalidates something, but nothing that covers what it writes. Covered
+  // means: an invalidated key matches the written resource's spelling OR any
+  // key the readers of that resource actually query under. An indirect clear
+  // (helper function) may invalidate keys we cannot see, so those are skipped
+  // rather than guessed at.
+  if (m.clearsIndirectly) continue;
+  const readerKeys = res ? [...(resourceReaders[res] ?? [])] : [];
+  const covers = (k, w) => norm(k) === norm(w) || norm(k).includes(norm(w)) || norm(w).includes(norm(k));
+  const covered = m.invalidates.some((k) =>
+    (m.writes && covers(k, m.writes)) || readerKeys.some((e) => covers(k, e)));
+  if (m.writes && !covered && readers?.length) {
     syncRisks.push({
-      severity: 'P2', kind: 'partial-invalidation',
-      entity: m.writes ?? res, hook: m.hook, mutation: `${m.file}:${m.line}`, verb: m.verb, endpoint: m.endpoint,
+      severity: 'P1', kind: 'partial-invalidation',
+      route: m.route, entity: m.writes ?? res, hook: m.hook, mutation: `${m.file}:${m.line}`, verb: m.verb, endpoint: m.endpoint,
       invalidates: m.invalidates, staleRoutes: readers,
-      detail: `${name} writes "${m.writes}" but invalidates only [${m.invalidates.join(', ')}]; ${readers.length} route(s) render "${m.writes}"`,
+      detail: `${name} writes "${m.writes}" but invalidates only [${m.invalidates.join(', ')}] -- none of which any reader of "${m.writes}" queries under; ${readers.length} route(s) render it stale`,
     });
   }
 }
