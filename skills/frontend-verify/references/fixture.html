@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>frontend-verify selftest fixture</title>
+<!-- Every defect below is PLANTED. selftest.sh asserts the probe finds each one.
+     A probe nobody has watched fail is not a gate. -->
+<style>
+  body { font: 14px system-ui; margin: 0; padding: 16px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; clip: rect(0px, 0px, 0px, 0px); }
+  .too-wide { width: 3000px; height: 8px; background: #ddd; }
+  .tiny { width: 12px; height: 12px; padding: 0; }
+  .skeleton { width: 120px; height: 14px; background: #eee; }
+</style>
+<main>
+  <h1>Fixture</h1>
+
+  <!-- value.leak x4 -->
+  <p id="leaks">Total: NaN &middot; Owner: undefined &middot; Payload: [object Object] &middot; Due: Invalid Date</p>
+
+  <!-- render.stuck-loading -->
+  <div class="skeleton" aria-busy="true"></div>
+
+  <!-- render.empty-list-no-state: a list with zero rows and no message near it -->
+  <section><ul id="empty-list"></ul></section>
+
+  <!-- layout.h-scroll -->
+  <div class="too-wide"></div>
+
+  <!-- a11y.tap-target (the .tiny button) and NOT the sr-only link, which is 1x1 by design -->
+  <button class="tiny" aria-label="tiny">x</button>
+  <a class="sr-only" href="#main">Skip to content</a>
+
+  <!-- a11y.unlabeled-control -->
+  <button id="nameless"></button>
+</main>
+<script>
+  // perf.layout-thrash: interleave a DOM write and a geometry read in one frame.
+  const box = document.getElementById('leaks');
+  for (let i = 0; i < 40; i++) {
+    box.setAttribute('data-i', String(i));
+    void box.getBoundingClientRect().width;
+  }
+</script>

@@ -1,0 +1,439 @@
+#!/usr/bin/env node
+// Feature inventory + sync graph. Static. No dependencies, no build step.
+//
+//   node inventory.mjs [repoRoot] > .verify/inventory.json
+//
+// Answers, without running anything:
+//   - what routes exist                      (filesystem / router config)
+//   - what data each route transitively reads (import graph -> query hooks)
+//   - what mutations exist and what they write
+//   - WHICH ROUTES GO STALE WHEN A MUTATION RUNS  <- the cross-page sync bug,
+//     found before a browser is ever opened
+//
+// ponytail: regex + import-graph, not a TS AST. Misses computed query keys and
+// re-exported hooks. Upgrade path: swap extract() for ts.createSourceFile if the
+// false-negative rate ever justifies the typescript dependency. It has not yet.
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+const ROOT = path.resolve(process.argv[2] ?? '.');
+const SRC_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs']);
+const SKIP_DIR = /(^|\/)(node_modules|\.next|\.git|dist|build|out|coverage|\.turbo|\.vercel|\.worktrees|\.venv|venv|site-packages|vendor|storybook-static)(\/|$)|\.(test|spec|stories)\.[tj]sx?$/;
+const MAX_IMPORT_DEPTH = 12;
+
+/* ------------------------------------------------------------------ files */
+
+function walk(dir, acc = []) {
+  let ents;
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return acc; }
+  for (const e of ents) {
+    const p = path.join(dir, e.name);
+    if (SKIP_DIR.test(p)) continue;
+    if (e.isDirectory()) walk(p, acc);
+    else if (SRC_EXT.has(path.extname(e.name))) acc.push(p);
+  }
+  return acc;
+}
+
+const FILES = walk(ROOT);
+const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+const SOURCE = new Map(FILES.map((f) => [f, read(f)]));
+const rel = (f) => path.relative(ROOT, f);
+
+/* ----------------------------------------------------------------- routes */
+
+// Next app router: app/**/page.tsx -> /a/[id]/b  (groups and parallel segments dropped)
+function nextAppRoutes() {
+  return FILES.filter((f) => /(^|\/)app\/.*\/page\.(t|j)sx?$/.test(f) || /(^|\/)app\/page\.(t|j)sx?$/.test(f))
+    .map((f) => {
+      const after = rel(f).replace(/^.*?(^|\/)app\//, '');
+      const url = '/' + after
+        .replace(/\/page\.(t|j)sx?$/, '')
+        .split('/')
+        .filter((s) => s && !/^\(.*\)$/.test(s) && !s.startsWith('@'))
+        .join('/');
+      return { path: url === '/' ? '/' : url.replace(/\/$/, ''), file: rel(f), kind: 'next-app' };
+    });
+}
+
+// Next pages router: pages/**/*.tsx, minus _app/_document/api
+function nextPagesRoutes() {
+  return FILES.filter((f) => /(^|\/)pages\/.*\.(t|j)sx?$/.test(f) && !/\/(_app|_document|_error)\./.test(f) && !/(^|\/)pages\/api\//.test(f))
+    .map((f) => {
+      const after = rel(f).replace(/^.*?(^|\/)pages\//, '');
+      let url = '/' + after.replace(/\.(t|j)sx?$/, '').replace(/\/index$/, '').replace(/^index$/, '');
+      return { path: url === '/' ? '/' : url.replace(/\/$/, ''), file: rel(f), kind: 'next-pages' };
+    });
+}
+
+// react-router / tanstack-router: <Route path="x" element={<Y/>}/> and { path: 'x', element: <Y/> }
+function configRoutes() {
+  const out = [];
+  for (const [f, src] of SOURCE) {
+    for (const m of src.matchAll(/<Route\s+[^>]*path=["'`]([^"'`]+)["'`][^>]*?(?:element=\{\s*<([A-Z][\w]*)|component=\{\s*([A-Z][\w]*))/gs)) {
+      out.push({ path: m[1].startsWith('/') ? m[1] : '/' + m[1], file: rel(f), component: m[2] ?? m[3], kind: 'react-router' });
+    }
+    for (const m of src.matchAll(/\{\s*path:\s*["'`]([^"'`]+)["'`][\s\S]{0,220}?(?:element:\s*<([A-Z][\w]*)|component:\s*([A-Z][\w]*)|lazy)/g)) {
+      out.push({ path: m[1].startsWith('/') ? m[1] : '/' + m[1], file: rel(f), component: m[2] ?? m[3], kind: 'route-config' });
+    }
+  }
+  return out;
+}
+
+// TanStack Router (and any src/routes file convention): src/routes/**/*.tsx.
+// A repo on this router reports ZERO routes without it, which makes the whole
+// inventory silently empty rather than wrong — the worst failure shape.
+//   _auth/       pathless layout segment, contributes nothing to the URL
+//   $id          dynamic param
+//   route.tsx    the segment's layout, not a page
+//   -components/ the leading dash means "not a route"
+function fileRouterRoutes() {
+  return FILES.filter((f) => /(^|\/)src\/routes\/.*\.[jt]sx$/.test(f))
+    .filter((f) => !/(^|\/)__|(^|\/)-|\/route\.[jt]sx$|\.lazy\.[jt]sx$/.test(rel(f)))
+    .map((f) => {
+      const after = rel(f).replace(/^.*?(^|\/)src\/routes\//, '');
+      const segs = after.replace(/\.[jt]sx$/, '').split('/')
+        .filter((s) => s && !s.startsWith('_'))          // pathless layouts
+        .map((s) => (s.startsWith('$') ? ':' + s.slice(1) : s))
+        .filter((s) => s !== 'index');
+      return { path: '/' + segs.join('/'), file: rel(f), kind: 'file-router' };
+    })
+    .map((r) => ({ ...r, path: r.path === '/' ? '/' : r.path.replace(/\/$/, '') }));
+}
+
+const routes = [...nextAppRoutes(), ...nextPagesRoutes(), ...configRoutes(), ...fileRouterRoutes()]
+  .filter((r, i, a) => a.findIndex((x) => x.path === r.path) === i)
+  .sort((a, b) => a.path.localeCompare(b.path));
+
+/* ---------------------------------------------------- imports (local only) */
+
+// Try EVERY matching alias, not just the first: with several candidate roots
+// configured, stopping at the first prefix match resolves nothing when that
+// root happens to be the wrong one.
+function resolveImport(fromFile, spec, aliases) {
+  const bases = [];
+  if (spec.startsWith('.')) bases.push(path.resolve(path.dirname(fromFile), spec));
+  else for (const [pre, target] of aliases) {
+    if (spec === pre || spec.startsWith(pre + '/')) bases.push(path.resolve(ROOT, target, spec.slice(pre.length + 1)));
+  }
+  for (const base of bases) {
+    const cands = [base, ...['.ts', '.tsx', '.js', '.jsx'].flatMap((e) => [base + e, path.join(base, 'index' + e)])];
+    const hit = cands.find((c) => SOURCE.has(c));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// tsconfig paths -> [["@", "."], ...]; falls back to the conventional ones.
+//
+// Do NOT strip /* */ before parsing: the alias keys THEMSELVES contain "/*"
+// ("@/*": ["./*"]), so a block-comment stripper eats the paths map and every
+// import silently fails to resolve. Line comments and trailing commas only.
+function parseJsonc(text) {
+  try { return JSON.parse(text); } catch { /* fall through to the tolerant pass */ }
+  try { return JSON.parse(text.replace(/^\s*\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '$1')); } catch { return null; }
+}
+
+function readAliases() {
+  const out = [];
+  const seen = new Set();
+  const load = (p, depth = 0) => {
+    if (depth > 4 || seen.has(p) || !fs.existsSync(p)) return;
+    seen.add(p);
+    const json = parseJsonc(read(p));
+    if (!json) return;
+    const baseDir = path.dirname(p);
+    const baseUrl = json?.compilerOptions?.baseUrl ?? '.';
+    for (const [k, v] of Object.entries(json?.compilerOptions?.paths ?? {})) {
+      const pre = k.replace(/\/\*$/, '');
+      const target = String(v?.[0] ?? '').replace(/\/\*$/, '');
+      if (pre && target) out.push([pre, path.relative(ROOT, path.resolve(baseDir, baseUrl, target)) || '.']);
+    }
+    if (typeof json.extends === 'string' && json.extends.startsWith('.')) load(path.resolve(baseDir, json.extends), depth + 1);
+  };
+  for (const name of ['tsconfig.json', 'jsconfig.json']) load(path.join(ROOT, name));
+  if (!out.length) out.push(['@', '.'], ['@', 'src'], ['~', 'src'], ['src', 'src']);
+  return out;
+}
+const ALIASES = readAliases();
+
+function importsOf(file) {
+  const src = SOURCE.get(file) ?? '';
+  const specs = [
+    ...src.matchAll(/(?:^|\n)\s*import\s+(?:[\s\S]*?\s+from\s+)?["'`]([^"'`]+)["'`]/g),
+    ...src.matchAll(/import\(\s*["'`]([^"'`]+)["'`]\s*\)/g),
+    ...src.matchAll(/(?:^|\n)\s*export\s+[\s\S]*?\s+from\s+["'`]([^"'`]+)["'`]/g),
+  ].map((m) => m[1]);
+  return [...new Set(specs)].map((s) => resolveImport(file, s, ALIASES)).filter(Boolean);
+}
+
+function reachable(entry) {
+  const seen = new Set([entry]);
+  let frontier = [entry];
+  for (let d = 0; d < MAX_IMPORT_DEPTH && frontier.length; d++) {
+    const next = [];
+    for (const f of frontier) for (const i of importsOf(f)) if (!seen.has(i)) { seen.add(i); next.push(i); }
+    frontier = next;
+  }
+  return seen;
+}
+
+/* -------------------------------------------------- queries and mutations */
+
+// The entity a query key names. Two shapes in the wild, both common:
+//   ['contacts', id]                  -> contacts   (literal array)
+//   QUERY_KEYS.adminSettings.list()   -> adminSettings   (key factory)
+// Mature repos overwhelmingly use the factory, so handling only the literal
+// finds almost nothing. Namespace matters: a mutation's invalidateQueries uses
+// the SAME factory, which is what lets writes and reads be matched at all.
+function keyEntity(expr) {
+  const lit = expr.match(/^\s*\[\s*["'`]([\w.:-]+)["'`]/);
+  if (lit) return lit[1];
+  const factory = expr.match(/\b[A-Za-z_$][\w$]*\s*\.\s*([A-Za-z_$][\w$]*)/);
+  if (factory) return factory[1];
+  const bare = expr.match(/^\s*["'`]([\w.:/-]+)["'`]/);
+  if (bare) return bare[1].replace(/^\//, '').split('/')[0];
+  return null;
+}
+
+// The endpoint a hook body talks to — used for blast radius and, later, for
+// DOM-count-vs-API parity.
+const endpointOf = (body) => (body.match(/\.(?:get|post|put|patch|delete)\s*\(\s*[`"']([^`"']+)/)
+  ?? body.match(/fetch\s*\(\s*[`"']([^`"']+)/) ?? [])[1] ?? null;
+
+// The REST resource an endpoint addresses: /admin-panel/settings/?x -> settings.
+// Leading api/v1/admin-panel style prefixes carry no entity information, and
+// treating them as the entity collapses every route onto one bucket.
+const PREFIX = /^(api|v\d+|admin-panel|admin|rest|graphql|public|internal)$/;
+function resource(endpoint) {
+  if (!endpoint) return null;
+  const segs = endpoint.split('?')[0].split('/').filter(Boolean)
+    .filter((s) => !s.startsWith('$') && !s.startsWith(':') && !/^\d+$/.test(s));
+  const meaningful = segs.filter((s) => !PREFIX.test(s));
+  return (meaningful[0] ?? segs[0] ?? null);
+}
+
+// `mutationFn: postLogout` hides the URL one module away. Without following it,
+// every such mutation reports "affected routes undetermined" — which is most of
+// them in any repo with an api/ layer, i.e. the report says nothing.
+const fnEndpointCache = new Map();
+function resolveFnEndpoint(name) {
+  if (!name) return null;
+  if (fnEndpointCache.has(name)) return fnEndpointCache.get(name);
+  fnEndpointCache.set(name, null);                       // cycle guard
+  const decl = new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(|(?:export\\s+)?const\\s+${name}\\s*=`);
+  for (const src of SOURCE.values()) {
+    const m = src.match(decl);
+    if (!m) continue;
+    const found = endpointOf(src.slice(m.index, m.index + 1500));
+    if (found) { fnEndpointCache.set(name, found); return found; }
+  }
+  return null;
+}
+
+// A call's argument text, brace-matched from the opening paren. Regex windows
+// truncate real hook bodies (a queryFn is routinely 40 lines), which silently
+// drops the invalidations that decide whether a mutation is a sync risk.
+function callBody(src, openParenIdx, cap = 6000) {
+  let depth = 0;
+  for (let i = openParenIdx; i < Math.min(src.length, openParenIdx + cap); i++) {
+    const c = src[i];
+    if (c === '(' || c === '{' || c === '[') depth++;
+    else if (c === ')' || c === '}' || c === ']') { depth--; if (depth === 0) return src.slice(openParenIdx, i + 1); }
+  }
+  return src.slice(openParenIdx, openParenIdx + cap);
+}
+
+const lineAt = (src, idx) => src.slice(0, idx).split('\n').length;
+
+// The hook or function a call sits inside. "useDeleteContact" is a finding a
+// human can act on; "hook.ts:61" is a coordinate they have to go look up.
+function enclosingName(src, idx) {
+  const before = src.slice(0, idx);
+  const decls = [...before.matchAll(/(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)|(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=/g)];
+  const last = decls[decls.length - 1];
+  return last ? (last[1] ?? last[2]) : null;
+}
+
+function extractQueries(file) {
+  const src = SOURCE.get(file) ?? '';
+  const out = [];
+  for (const m of src.matchAll(/\buse(?:Suspense)?(?:Infinite)?Query\s*(?:<[^>]*>)?\s*\(/g)) {
+    const body = callBody(src, m.index + m[0].length - 1);
+    const key = (body.match(/queryKey:\s*([^\n,]+)/) ?? [])[1];
+    if (!key) continue;
+    const qFn = (body.match(/queryFn:\s*([A-Za-z_$][\w$]*)/) ?? [])[1] ?? '';
+    out.push({
+      entity: keyEntity(key), key: key.trim().slice(0, 120), endpoint: endpointOf(body) ?? resolveFnEndpoint(qFn),
+      file: rel(file), line: lineAt(src, m.index),
+    });
+  }
+  for (const m of src.matchAll(/\buseSWR\s*(?:<[^>]*>)?\s*\(\s*(["'`][^"'`]+["'`]|\[[\s\S]{0,120}?\])/g)) {
+    out.push({ entity: keyEntity(m[1]), key: m[1].replace(/\s+/g, ' ').slice(0, 120), endpoint: null, file: rel(file), line: lineAt(src, m.index), hook: 'swr' });
+  }
+  return out;
+}
+
+/* --------------------------------------------- who actually clears the cache */
+
+// Any call that refreshes cached server state, not just invalidateQueries.
+const CACHE_OP = /(?:invalidate|reset|remove|refetch)Queries\s*\(|set(?:Query|Queries)Data\s*\(|(?:query|mutation)(?:Cache|Client)\s*\.\s*clear\s*\(/;
+
+// Repos wrap cache resets in a helper (`const { resetQuery } = useResetQuery()`)
+// and call THAT from onSuccess. Matching only the literal invalidateQueries call
+// reports every such mutation as a sync risk — a false positive rate that makes
+// the whole report unusable. So: collect the names of functions that clear the
+// cache, and treat a call to one of them as an invalidation.
+// Precision is the priority here: a missed risk surfaces later, a false alarm
+// burns the reader's trust the first time they open the file and find nothing.
+function collectInvalidatorNames() {
+  const names = new Set();
+  const DECL = /(?:function\s+([A-Za-z_$][\w$]*)\s*\(|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\(|function)|([A-Za-z_$][\w$]*)\s*:\s*(?:async\s*)?\()/g;
+  for (const src of SOURCE.values()) {
+    for (const m of src.matchAll(DECL)) {
+      const name = m[1] ?? m[2] ?? m[3];
+      if (!name || names.has(name)) continue;
+      if (CACHE_OP.test(src.slice(m.index, m.index + 1200))) names.add(name);
+    }
+  }
+  return names;
+}
+const INVALIDATOR_NAMES = collectInvalidatorNames();
+
+// Not every useMutation writes server state: exports, downloads, analytics pings
+// and GET-backed "mutations" have nothing to invalidate and must not be flagged.
+// Match on WORDS, after splitting camelCase and paths: a plain \b regex misses
+// both "useCreateRecordExport" (no boundary inside camelCase) and "/exports/"
+// (the boundary lands after the plural s), which is most real-world spellings.
+const NON_WRITE_STEMS = /^(exports?|downloads?|prints?|tracks?|analytics?|telemetry|logs?|reports?|previews?|validates?|checks?|searches|search|verify|verifies)$/i;
+const words = (s) => String(s ?? '').replace(/([a-z\d])([A-Z])/g, '$1 $2').split(/[^A-Za-z\d]+/).filter(Boolean);
+const isNonWrite = (...parts) => parts.some((p) => words(p).some((w) => NON_WRITE_STEMS.test(w)));
+
+function extractMutations(file) {
+  const src = SOURCE.get(file) ?? '';
+  const out = [];
+  for (const m of src.matchAll(/\buseMutation\s*(?:<[^>]*>)?\s*\(/g)) {
+    const body = callBody(src, m.index + m[0].length - 1);
+    const invalidates = [...body.matchAll(/invalidateQueries\s*\(\s*\{?\s*(?:queryKey:\s*)?([^\n,)]+)/g)].map((x) => keyEntity(x[1])).filter(Boolean);
+    const setQuery = [...body.matchAll(/set(?:Query|Queries)Data\s*\(\s*([^\n,]+)/g)].map((x) => keyEntity(x[1])).filter(Boolean);
+    const fnName = (body.match(/mutationFn:\s*([A-Za-z_$][\w$]*)/) ?? [])[1] ?? '';
+    const endpoint = endpointOf(body) ?? resolveFnEndpoint(fnName);
+    const hook = enclosingName(src, m.index);
+    // Does the body clear the cache directly, or by calling a known invalidator?
+    const clearsDirectly = CACHE_OP.test(body);
+    const calledNames = [...body.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((x) => x[1]);
+    const clearsIndirectly = calledNames.some((n) => INVALIDATOR_NAMES.has(n));
+    out.push({
+      writes: invalidates[0] ?? setQuery[0] ?? (endpoint ? endpoint.replace(/^\//, '').split('/')[0] : null),
+      verb: (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] ?? null,
+      endpoint, fnName, hook,
+      invalidates: [...new Set([...invalidates, ...setQuery])],
+      clearsCache: clearsDirectly || clearsIndirectly,
+      nonWrite: isNonWrite(fnName, hook, endpoint)
+        || (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] === 'get',
+      file: rel(file), line: lineAt(src, m.index),
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------- assemble + graph */
+
+const routeReport = routes.map((r) => {
+  const entry = path.resolve(ROOT, r.file);
+  const tree = reachable(entry);
+  const queries = [...tree].flatMap(extractQueries);
+  const mutations = [...tree].flatMap(extractMutations);
+  return {
+    ...r,
+    modules: tree.size,
+    entities: [...new Set(queries.map((q) => q.entity).filter(Boolean))].sort(),
+    queries, mutations,
+  };
+});
+
+// entity -> the routes that render it. This IS the sync graph.
+const matrix = {};
+for (const r of routeReport) for (const e of r.entities) (matrix[e] ??= []).push(r.path);
+for (const e of Object.keys(matrix)) matrix[e] = [...new Set(matrix[e])].sort();
+
+// The same graph keyed by API resource. Query keys and mutation targets are named
+// in different vocabularies (a `QUERY_KEYS.getConversations()` factory vs a POST to
+// /messages/), so key-name matching alone connects almost nothing. The endpoint is
+// the vocabulary both sides actually share.
+const resourceMatrix = {};
+for (const r of routeReport) {
+  for (const q of r.queries) {
+    const res = resource(q.endpoint);
+    if (res) (resourceMatrix[res] ??= []).push(r.path);
+  }
+}
+for (const k of Object.keys(resourceMatrix)) resourceMatrix[k] = [...new Set(resourceMatrix[k])].sort();
+
+const allMutations = routeReport.flatMap((r) => r.mutations.map((m) => ({ ...m, route: r.path })));
+const byLoc = new Map(allMutations.map((m) => [`${m.file}:${m.line}`, m]));
+
+// THE FINDING. Two shapes, both meaning "a write happened and some view still
+// shows the old value" — the cross-page sync bug, located before a browser opens.
+const syncRisks = [];
+for (const m of byLoc.values()) {
+  if (m.nonWrite || m.clearsCache) continue;   // nothing to go stale, or already handled
+  // A: writes something and invalidates NOTHING. Every reader of it is stale.
+  // staleRoutes null means "blast radius not determined" — the entity could not
+  // be resolved. That is NOT the same as zero affected routes, and reporting it
+  // as an empty list would understate the finding.
+  const res = resource(m.endpoint);
+  const readers = (res ? resourceMatrix[res] : null) ?? (m.writes ? matrix[m.writes] : null) ?? null;
+  const name = m.hook ? `${m.hook}()` : `${m.file}:${m.line}`;
+  if (!m.invalidates.length) {
+    syncRisks.push({
+      severity: readers?.length ? 'P1' : 'P2', kind: 'no-invalidation',
+      entity: m.writes ?? res, hook: m.hook, mutation: `${m.file}:${m.line}`, verb: m.verb, endpoint: m.endpoint,
+      invalidates: [], staleRoutes: readers,
+      detail: `${name} writes ${m.endpoint ?? m.writes ?? 'server state'} and invalidates no query`
+        + (readers?.length ? `; ${readers.length} route(s) render it` : '; affected routes undetermined'),
+    });
+    continue;
+  }
+  // B: invalidates something, but not the entity it writes.
+  if (m.writes && !m.invalidates.includes(m.writes) && readers?.length) {
+    syncRisks.push({
+      severity: 'P2', kind: 'partial-invalidation',
+      entity: m.writes ?? res, hook: m.hook, mutation: `${m.file}:${m.line}`, verb: m.verb, endpoint: m.endpoint,
+      invalidates: m.invalidates, staleRoutes: readers,
+      detail: `${name} writes "${m.writes}" but invalidates only [${m.invalidates.join(', ')}]; ${readers.length} route(s) render "${m.writes}"`,
+    });
+  }
+}
+syncRisks.sort((a, b) => a.severity.localeCompare(b.severity) || (b.staleRoutes?.length ?? -1) - (a.staleRoutes?.length ?? -1));
+
+// An entity read under two shapes of key is two sources of truth for one thing.
+const duplicateSources = Object.entries(
+  routeReport.flatMap((r) => r.queries).filter((q) => q.entity)
+    .reduce((a, q) => ((a[q.entity] ??= new Set()).add(q.key.replace(/\s/g, '')), a), {})
+).filter(([, keys]) => keys.size > 1)
+  .map(([entity, keys]) => ({ entity, keys: [...keys], detail: `"${entity}" is cached under ${keys.size} distinct key shapes` }));
+
+process.stdout.write(JSON.stringify({
+  root: ROOT,
+  generated: new Date().toISOString(),
+  counts: {
+    files: FILES.length,
+    routes: routeReport.length,
+    entities: Object.keys(matrix).length,
+    // Unique call SITES. Summing per-route counts multiplies every shared hook by
+    // the number of routes that reach it, which reads as 4000 queries in a repo
+    // that has 300 — a count nobody can sanity-check is a count nobody should cite.
+    queries: new Set(routeReport.flatMap((r) => r.queries.map((q) => `${q.file}:${q.line}`))).size,
+    queryUsages: routeReport.reduce((n, r) => n + r.queries.length, 0),
+    mutations: byLoc.size,
+    syncRisks: syncRisks.length,
+    duplicateSources: duplicateSources.length,
+  },
+  routes: routeReport,
+  matrix,
+  resourceMatrix,
+  syncRisks,
+  duplicateSources,
+}, null, 2) + '\n');
