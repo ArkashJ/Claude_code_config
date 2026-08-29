@@ -147,6 +147,23 @@ export function NameBadge(props: { name: string }) {
   const [name] = useState(props.name)
   return <span>{name}</span>
 }
+// MUST STAY SILENT: the canonical correct []-deps effect. `online` appears ONLY
+// inside string literals passed to addEventListener, and setOnline is a stable
+// setter — there is no captured state here. Flagging this shape made the rule
+// fire on the single most common correct use of an empty dep array.
+export function OnlineBadge() {
+  const [online, setOnline] = useState(true)
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
+  return <span>{online ? 'on' : 'off'}</span>
+}
 export function Ticker() {
   const [count, setCount] = useState(0)
   useEffect(() => {
@@ -162,6 +179,12 @@ export function Ticker() {
     </ThemeContext.Provider>
   )
 }
+// MUST STAY SILENT: verify-ignore is window-scoped -- it silences only this
+// marked occurrence, not the whole file, so the unmarked sink above still fires.
+export function StaticCss() {
+  // verify-ignore: unsanitized-html -- literal string, no external input
+  return <style dangerouslySetInnerHTML={{ __html: '.x{color:red}' }} />
+}
 TSX
 
 # PLANTED: external-store-without-sync, prototype-pollution-shape.
@@ -173,6 +196,107 @@ export function applyRemote(config: Record<string, unknown>, raw: string) {
   Object.assign(config, JSON.parse(raw))
 }
 TS
+
+# PLANTED: the generated-client shapes. Every one of these silently produced a
+# WRONG-BUT-GREEN inventory before it was covered here, and none of them fails
+# loudly -- they just make findings disappear, which is the worst shape of bug
+# this suite exists to catch.
+#
+#  1. UPPERCASE http verbs (openapi-fetch and every generated client). A
+#     lowercase-only endpoint matcher resolved the endpoint of NONE of them, so
+#     resourceMatrix came back with 1 entry on a 145-query app and every sync
+#     risk downgraded itself to "could not determine what goes stale".
+#  2. A GET wrapped in useMutation (open-a-pdf, start-a-download). It writes
+#     nothing, so it has no blast radius and must not be filed as a sync risk.
+#  3. An AMBIENT resource -- one that most routes read. `auth` read by 30 of 57
+#     routes is not an entity, and "this write leaves 30 routes stale" is a
+#     denominator failure, not a finding.
+# The two hook families live in SEPARATE modules on purpose. The import walk
+# attributes every hook in a module to every route that imports it, so one
+# grab-bag module would make all 13 routes read both entities -- and the narrow
+# blast radius this fixture exists to assert would become ambient by accident.
+mkdir -p "$TMP/src/hooks"
+cat > "$TMP/src/hooks/use-taxdocs.ts" <<'TS'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { apiClient } from '@/src/api/client'
+export function useTaxDocs() {
+  return useQuery({ queryKey: ['taxdocs'], queryFn: async () => {
+    const { data } = await apiClient.GET('/v1/taxdocs'); return data } })
+}
+export function useCreateTaxDoc() {
+  return useMutation({ mutationKey: ['taxdocs'], mutationFn: async (body: unknown) => {
+    const { data } = await apiClient.POST('/v1/taxdocs', { body }); return data } })
+}
+export function useOpenTaxDocPdf() {
+  return useMutation({ mutationKey: ['taxdocs', 'pdf'], mutationFn: async ({ id }: { id: string }) => {
+    const { data } = await apiClient.GET('/v1/taxdocs/{id}/pdf', { params: { path: { id } } }); return data } })
+}
+export function usePutTaxDocLimit() {
+  const qc = useQueryClient()
+  return useMutation({ mutationKey: ['taxdocs', 'limit'], mutationFn: async ({ id }: { id: string }) => {
+      const { data } = await apiClient.PUT('/v1/taxdocs/{id}/limit/{year}', { params: { path: { id } } }); return data },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['limit', 'board'] }) } })
+}
+TS
+cat > "$TMP/src/hooks/use-session.ts" <<'TS'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { apiClient } from '@/src/api/client'
+export function useSession() {
+  return useQuery({ queryKey: ['session'], queryFn: async () => {
+    const { data } = await apiClient.GET('/v1/session/me'); return data } })
+}
+export function useRefreshSession() {
+  return useMutation({ mutationKey: ['session'], mutationFn: async () => {
+    const { data } = await apiClient.POST('/v1/session/refresh'); return data } })
+}
+TS
+# One route that renders the taxdocs entity (a real, narrow blast radius) ...
+mkdir -p "$TMP/app/taxdocs"
+cat > "$TMP/app/taxdocs/page.tsx" <<'TSX'
+'use client'
+import { useTaxDocs, useCreateTaxDoc, useOpenTaxDocPdf } from '@/src/hooks/use-taxdocs'
+export default function TaxDocsPage() {
+  const { data, isError, isLoading } = useTaxDocs()
+  const add = useCreateTaxDoc(); const open = useOpenTaxDocPdf()
+  if (isLoading) return <p>Loading</p>
+  if (isError) return <p>failed</p>
+  if (!(data as unknown[])?.length) return <p>No tax documents yet</p>
+  return <div><button onClick={() => add.mutate({})}>Add</button>
+    <button onClick={() => open.mutate({ id: 'x' })}>PDF</button></div>
+}
+TSX
+# ... and TWELVE routes that all read the session, making it ambient.
+for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  mkdir -p "$TMP/app/amb$n"
+  cat > "$TMP/app/amb$n/page.tsx" <<'TSX'
+'use client'
+import { useSession, useRefreshSession } from '@/src/hooks/use-session'
+export default function AmbientPage() {
+  const { data, isError, isLoading } = useSession()
+  const refresh = useRefreshSession()
+  if (isLoading) return <p>Loading</p>
+  if (isError) return <p>failed</p>
+  if (!data) return <p>No session</p>
+  return <button onClick={() => refresh.mutate()}>Refresh</button>
+}
+TSX
+done
+cat > "$TMP/src/api/client.ts" <<'TS'
+export const apiClient = {
+  GET: async (_p: string, _o?: unknown) => ({ data: [] as unknown[] }),
+  POST: async (_p: string, _o?: unknown) => ({ data: {} }),
+  PUT: async (_p: string, _o?: unknown) => ({ data: {} }),
+}
+TS
+
+# PLANTED, MUST STAY SILENT: a design-lab tree. Committed, shaped exactly like the
+# app, reachable from no route. On a real repo these produced 18 of 19 findings.
+mkdir -p "$TMP/src/_proto"
+cat > "$TMP/src/_proto/lab.jsx" <<'JSX'
+export function Lab({ rows }) {
+  return <ul>{rows.map((r, index) => <li key={index}>{r.name}</li>)}</ul>
+}
+JSX
 
 fail=0
 INV="$TMP/inventory.json"
@@ -200,6 +324,22 @@ check("wrapper mutation counted", j.routes.some((r) => r.mutations.some((x) => x
       j.routes.flatMap((r) => r.mutations).filter((x) => x.via).map((x) => x.via).join(",") || "none");
 check("blast radius resolved",  (j.syncRisks[0] && j.syncRisks[0].staleRoutes || []).length >= 2,
       JSON.stringify((j.syncRisks[0] || {}).staleRoutes));
+// Generated-client shapes. Each of these was a silent green before it was planted.
+const risk = (h) => j.syncRisks.find((r) => (r.hook || "") === h);
+check("UPPERCASE verb endpoint resolved",
+      Object.keys(j.resourceMatrix).includes("taxdocs"),
+      Object.keys(j.resourceMatrix).slice(0, 8).join(",") || "none");
+check("uppercase-POST write flagged with its blast radius",
+      !!risk("useCreateTaxDoc") && (risk("useCreateTaxDoc").staleRoutes || []).length >= 1,
+      risk("useCreateTaxDoc") ? risk("useCreateTaxDoc").severity + " " + JSON.stringify(risk("useCreateTaxDoc").staleRoutes) : "none");
+check("GET wrapped in useMutation NOT a sync risk", !risk("useOpenTaxDocPdf"),
+      risk("useOpenTaxDocPdf") ? risk("useOpenTaxDocPdf").detail.slice(0, 70) : "absent");
+check("nested write that invalidates its INNER segment NOT flagged",
+      !risk("usePutTaxDocLimit"),
+      risk("usePutTaxDocLimit") ? risk("usePutTaxDocLimit").detail.slice(0, 90) : "absent");
+check("ambient resource NOT filed as P1",
+      !!risk("useRefreshSession") && risk("useRefreshSession").severity !== "P1" && risk("useRefreshSession").unresolved === true,
+      risk("useRefreshSession") ? risk("useRefreshSession").severity + " stale=" + JSON.stringify(risk("useRefreshSession").staleRoutes) : "none");
 process.exit(bad);
 ' "$INV" || fail=1
 
@@ -218,6 +358,47 @@ done
 nrules=$(grep -oE "add\('[a-zA-Z-]+'" "$SKILL/bin/classify.mjs" | sort -u | wc -l | tr -d ' ')
 if [ "$nrules" = "16" ]; then echo "  ok    16 rules defined, 16 asserted"
 else echo "  FAIL  classify.mjs defines $nrules distinct rules but this selftest asserts 16 -- plant the new one"; fail=1; fi
+
+# Known false positives that must stay silent. A rule is only worth reading if
+# it is quiet on correct code; each entry here is a shape that once fired.
+if grep -q '"file": "src/components/widgets.tsx"' "$TMP/classify.json" && \
+   node -e '
+     const f = require("'"$TMP"'/classify.json").findings || [];
+     const bad = f.filter((x) => x.rule === "stale-closure" && /OnlineBadge/.test(x.message || ""));
+     process.exit(bad.length ? 1 : 0);
+   ' 2>/dev/null; then :; fi
+if node -e '
+  const f = require("'"$TMP"'/classify.json").findings || [];
+  const hits = f.filter((x) => x.rule === "stale-closure");
+  // Exactly ONE stale-closure: the planted Ticker. The OnlineBadge counter-example
+  // must not add a second.
+  process.exit(hits.length === 1 ? 0 : 1);
+'; then echo "  ok    stale-closure quiet on the correct subscribe/unsubscribe shape"
+else echo "  FAIL  stale-closure fired on a correct []-deps effect (string literal read as an identifier)"; fail=1; fi
+
+if node -e '
+  const f = require("'"$TMP"'/classify.json").findings || [];
+  const hits = f.filter((x) => x.rule === "unsanitized-html");
+  // Exactly ONE: the unmarked window.comment sink. The marked StaticCss sink
+  // (verify-ignore: unsanitized-html) must not add a second -- proves the
+  // escape hatch is window-scoped, not a whole-file "sanitize" bypass.
+  process.exit(hits.length === 1 ? 0 : 1);
+'; then echo "  ok    verify-ignore suppresses only the marked sink, not the unmarked one"
+else echo "  FAIL  verify-ignore either did not suppress the marked sink or also swallowed the unmarked one"; fail=1; fi
+
+# Design-lab trees are committed, so .gitignore does not cover them, and they are
+# shaped exactly like the app, so every rule fires in them. Reachable from no
+# route, though, so nothing found there can break anything. On a real repo they
+# were 18 of 19 findings -- a report that is 95% noise is one nobody opens twice.
+if node -e '
+  const f = require("'"$TMP"'/classify.json").findings || [];
+  const lab = f.filter((x) => /(^|\/)_proto(\/|$)/.test(x.file));
+  if (lab.length) { console.error("      " + lab.length + " finding(s) inside _proto/: " + lab[0].file); process.exit(1); }
+  // ...and the identical defect in real source must STILL be reported, or this
+  // is not an exclusion, it is the rule having quietly stopped working.
+  process.exit(f.some((x) => x.rule === "index-as-list-key") ? 0 : 1);
+'; then echo "  ok    design-lab tree excluded, index-key rule still fires in real source"
+else echo "  FAIL  _proto/ leaked into findings, or the index-key rule stopped firing entirely"; fail=1; fi
 
 # ---------------------------------------------------------------------------
 # MONOREPO regression. Reproduces the exact shape that reported modules:1 and

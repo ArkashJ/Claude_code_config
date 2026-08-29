@@ -44,6 +44,12 @@ const AUTH = arg('auth', path.join(REPO, '.verify', 'auth.json'));
 const JSON_OUT = arg('json', path.join(REPO, '.verify', 'sweep.json'));
 const PROBE = path.join(path.dirname(new URL(import.meta.url).pathname), 'probe.js');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// Navigation and warm-up budgets. Declared with the other config, NOT beside the
+// warm-up code that motivated them: auto-login navigates before that point, and
+// a const in the temporal dead zone there crashed the whole sweep before it
+// wrote a single line of report.
+const NAV_MS = Number(arg('nav-timeout', '60000'));
+const WARM_MS = Number(arg('warm-timeout', '90000'));
 
 /* ------------------------------------------------------------- playwright */
 
@@ -123,10 +129,34 @@ function routesToSweep() {
   return ['/'];
 }
 
+// route -> how many query hooks the inventory found reachable from it. This turns
+// "no data requests observed" from a heuristic into an assertion: a route the
+// import graph says reads nothing SHOULD show no traffic, and flagging it is the
+// tool complaining that a static page is static. Measured on a real repo, all 6
+// hits were genuinely static routes (an install page, a magic-link callback).
+// Only a route with data dependencies AND no traffic is evidence of anything.
+function routeQueryCounts() {
+  const m = new Map();
+  try {
+    const inv = JSON.parse(fs.readFileSync(INVENTORY, 'utf8'));
+    for (const r of inv.routes) m.set(r.path, (r.queries ?? []).length);
+  } catch { /* no inventory: every route is unknown, and unknown never accuses */ }
+  return m;
+}
+const ROUTE_QUERIES = routeQueryCounts();
+
 // The dev server WILL hiccup over an hours-long run. Any HTTP response at all
 // means it is up; only a connection-level failure means it is not.
+//
+// The 5s timeout this used to carry was not a liveness check, it was a load
+// check: a dev server busy compiling another route answers `/` in 30s, and the
+// sweep aborted the whole run calling it dead. Give it room, and require two
+// consecutive failures before believing them.
 async function serverAlive() {
-  try { await fetch(BASE + '/', { signal: AbortSignal.timeout(5000) }); return true; } catch { return false; }
+  for (const attempt of [0, 1]) {
+    try { await fetch(BASE + '/', { signal: AbortSignal.timeout(20000) }); return true; } catch { if (!attempt) await wait(2000); }
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ sweep */
@@ -143,6 +173,25 @@ if (!routes.length) {
 const probeSrc = fs.readFileSync(PROBE, 'utf8').replace(/^\s*\/\/[^\n]*\n/gm, '').trim();
 const probeFn = eval('(' + probeSrc + ')');
 
+// Timing measured against a dev server is the COMPILER's, not the app's. On a
+// real run 16 of 53 findings were perf.lcp, the worst reading 14,864ms against
+// `next dev` -- a number with no relationship to anything a user will ever
+// experience, filed at the same severity as a page that crashed. Without --prod
+// these stay in the report (the reading is real) but as P3, labelled. Pass
+// --prod when the base URL is a production build and they grade normally.
+// perf.unused-preload and perf.memory-leak are build-independent and unaffected.
+const PROD = flag('prod');
+const COMPILE_SENSITIVE = /^perf\.(lcp|long-task|layout-shift|layout-thrash)$/;
+function graded(probe) {
+  if (PROD) return probe;
+  for (const f of probe.findings ?? []) {
+    if (!COMPILE_SENSITIVE.test(f.kind)) continue;
+    f.severity = 'P3';
+    f.detail += ' -- measured without --prod; against a dev server this is the compiler, not the app';
+  }
+  return probe;
+}
+
 // A launch failure is "could not run", never "found problems": exit 1 here would
 // let a missing browser binary read as an app defect.
 let browser;
@@ -153,10 +202,20 @@ try {
   console.error('  npx playwright install chromium');
   process.exit(2);
 }
-const context = await browser.newContext({
-  viewport: { width: WIDTH, height: HEIGHT },
-  ...(AUTH && fs.existsSync(AUTH) ? { storageState: AUTH } : {}),
-});
+// One context per ROLE. An app with two principals (a staff session and a
+// customer-portal session) refuses each other's routes by design, so a single
+// context can never reach more than its own half -- and the half it cannot reach
+// reports as findings unless the caller knows to ignore them. Everything below
+// installs identically into every role's context.
+async function makeContext(authPath) {
+  const ctx = await browser.newContext({
+    viewport: { width: WIDTH, height: HEIGHT },
+    ...(authPath && fs.existsSync(authPath) ? { storageState: authPath } : {}),
+  });
+  for (const script of INIT_SCRIPTS) await ctx.addInitScript(script);
+  return ctx;
+}
+const INIT_SCRIPTS = [];
 
 // Playwright's network events only see traffic that reaches the browser's network
 // stack. A service worker (MSW and every mock-first setup) answers fetches INSIDE
@@ -164,7 +223,7 @@ const context = await browser.newContext({
 // silently passes -- the tool reports clean on an app it never measured. Patching
 // window.fetch and XHR before app JS runs is the only vantage point that sees both
 // real and intercepted traffic.
-await context.addInitScript(() => {
+INIT_SCRIPTS.push(() => {
   const log = [];
   Object.defineProperty(window, '__fv_net', { get: () => log, configurable: true });
   const captureArray = (entry, text) => {
@@ -218,7 +277,7 @@ await context.addInitScript(() => {
 // would report clean numbers for pages they never measured. Buffered observers
 // from an init script are the supported vantage point; same for layout thrash,
 // which happens during load -- instrumenting it after settle watches an empty frame.
-await context.addInitScript(() => {
+INIT_SCRIPTS.push(() => {
   const perf = { longTasks: 0, longestTaskMs: 0, cls: 0, lcpMs: null, thrashReads: 0 };
   Object.defineProperty(window, '__fv_perf', { get: () => perf, configurable: true });
   // Observer callbacks are delivered asynchronously; a reader that does not
@@ -255,6 +314,36 @@ await context.addInitScript(() => {
   requestAnimationFrame(frame);
 });
 
+/* ------------------------------------------------------------------ roles */
+
+// <repo>/verify.roles.json (or .verify/roles.json):
+//
+//   { "staff":  { "auth": ".verify/auth.json",        "owns": ["/"], "excludes": ["/portal"] },
+//     "portal": { "auth": ".verify/auth-portal.json", "owns": ["/portal"] } }
+//
+// OWNERSHIP is the load-bearing half, not the auth state. An app that refuses a
+// staff principal on /portal/* and a portal principal on /* is behaving
+// correctly in BOTH directions, so a role swept over routes it does not own
+// reports every one of them as a defect. Measured on a real repo: the portal
+// lens produced 45 "requested X, landed on /login" P1s, none of them a bug.
+// Owning a route is a prefix match -- route trees are prefix-shaped, and a glob
+// language here would be machinery for a case nobody has.
+function loadRoles() {
+  const file = [path.join(REPO, 'verify.roles.json'), path.join(REPO, '.verify', 'roles.json')]
+    .find((f) => fs.existsSync(f));
+  if (!file) return [{ name: 'default', auth: AUTH, owns: ['/'], excludes: [] }];
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  return Object.entries(raw).map(([name, r]) => ({
+    name,
+    auth: r.auth ? path.resolve(REPO, r.auth) : AUTH,
+    owns: r.owns ?? ['/'],
+    excludes: r.excludes ?? [],
+  }));
+}
+const underPrefix = (route, p) => route === p || route.startsWith(p.replace(/\/$/, '') + '/');
+const roleOwns = (role, route) =>
+  role.owns.some((p) => underPrefix(route, p)) && !role.excludes.some((p) => underPrefix(route, p));
+
 /* -------------------------------------------------------------- auto-login */
 
 // A gated app without auth state sweeps 6 of 49 routes and honestly reports
@@ -267,11 +356,11 @@ async function autoLogin(user, pass) {
   const page = await context.newPage();
   try {
     const loginPath = arg('login-path', '/login');
-    await page.goto(BASE + loginPath, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await page.goto(BASE + loginPath, { waitUntil: 'domcontentloaded', timeout: NAV_MS }).catch(() => {});
     let pw = await page.$('input[type="password"]');
     if (!pw) {
       // The app may put login elsewhere; follow its own redirect from /.
-      await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: NAV_MS }).catch(() => {});
       await page.waitForTimeout(1500);
       pw = await page.$('input[type="password"]');
     }
@@ -298,11 +387,16 @@ async function autoLogin(user, pass) {
   } finally { await page.close(); }
 }
 
+// The primary context: the default role's, and the one the journey, mutate and
+// leak phases run under after the route loop.
+let context = await makeContext(AUTH);
+
 const LOGIN_USER = arg('login-user') ?? process.env.FV_LOGIN_USER;
 const LOGIN_PASS = arg('login-pass') ?? process.env.FV_LOGIN_PASS;
 if (LOGIN_USER && LOGIN_PASS && !fs.existsSync(AUTH)) await autoLogin(LOGIN_USER, LOGIN_PASS);
 
-const report = { base: BASE, width: WIDTH, started: new Date().toISOString(), routes: [], summary: {} };
+const report = { base: BASE, width: WIDTH, started: new Date().toISOString(), routes: [], unreached: [], roles: [], summary: {} };
+let currentRole = 'default';
 const sevOf = (f) => f.severity ?? 'P2';
 
 // Written after every route, not once at the end: hour three of a long run must
@@ -410,6 +504,22 @@ async function mergeInPage(page, L) {
   return inPage;
 }
 
+// KNOWN BLIND SPOT -- a mock-API service worker (MSW and hand-rolled
+// equivalents) does not intercept until it has CLAIMED the page, so the FIRST
+// route of a sweep issues its requests straight to the origin and they 404.
+// They surface as network.http-404 P1s on a route that is fine.
+//
+// Measured on one app (2026-08-29): first load `GET /v1/auth/me -> 404`; second
+// load, 20 requests, all 200. Journeys hit it too -- their start route is a
+// first navigation for that page.
+//
+// A warm-up navigation before the route loop was written and REVERTED: it did
+// not change the finding count, and an unproven fix in a shared tool is worse
+// than a documented gap. Whoever picks this up: verify
+// navigator.serviceWorker.controller actually becomes non-null at BASE under
+// --auth before assuming the warm-up ran at all -- that is where the first
+// attempt failed silently.
+
 const settleAndLand = async (page, route) => {
   // Readiness is NOT networkidle: long polling, websockets and background
   // refetches keep the network busy forever, and a capture taken before the
@@ -434,15 +544,24 @@ async function sweepRoute(route) {
   let redirectedTo = null;
   let unreachable = false;
   try {
-    const resp = await page.goto(BASE + route, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const resp = await page.goto(BASE + route, { waitUntil: 'domcontentloaded', timeout: NAV_MS });
     if (resp && resp.status() >= 400) push('route.status-' + resp.status(), 'P0', 'route returned HTTP ' + resp.status());
     const landedPath = await settleAndLand(page, route);
 
     const wanted = route.replace(/\/$/, '') || '/';
+    // NOT a finding. A route the sweep never reached is a gap in COVERAGE, and
+    // filing it beside real defects is the tool reporting on its own cookie jar
+    // in the same list as the app's bugs -- on a real run, 10 of 13 P1s were
+    // "landed on /portal/login". Coverage gaps go to report.unreached, get their
+    // own line in the summary, and keep PASS from ever meaning "everything was
+    // measured". The tool refuses to grade a route it did not reach; it does not
+    // pretend the route is broken.
     if (landedPath !== wanted) {
-      push('route.not-reached', 'P1', 'requested ' + wanted + ' but landed on ' + landedPath
-        + (/\b(login|signin|sign-in|auth)\b/.test(landedPath) ? ' -- the sweep is unauthenticated; pass --auth <storageState.json> to cover this route' : ''));
       redirectedTo = landedPath;
+      report.unreached.push({ route: wanted, landedOn: landedPath, role: currentRole,
+        reason: /\b(login|signin|sign-in|auth)\b/.test(landedPath)
+          ? 'redirected to auth -- no role in verify.roles.json reached this route'
+          : 'redirected' });
     }
     // A not-found shell is not the route's surface either. A sweep that
     // substitutes a synthetic :id which exists in no fixture measures the
@@ -462,7 +581,7 @@ async function sweepRoute(route) {
     // Probe a destination once. Everything found on /login belongs to /login.
     if (!measured.has(landedPath)) {
       measured.add(landedPath);
-      probe = await probeFn(page);
+      probe = graded(await probeFn(page));
     } else {
       probe = { findings: [], metrics: {}, skipped: 'destination already measured: ' + landedPath };
     }
@@ -475,8 +594,13 @@ async function sweepRoute(route) {
   // Only for routes actually reached: a redirected route already carries
   // route.not-reached, and 43 copies of "no traffic" on a gated app are 43
   // restatements of that one finding.
-  if (!redirectedTo && !unreachable && !L.requests.some((r) => r.type === 'xhr' || r.type === 'fetch') && inPage.length === 0)
-    push('verify.no-data-traffic', 'P2', 'no data requests observed at either the network layer or in-page -- either this route needs none, or the sweep is measuring nothing');
+  // ...and only for routes the inventory says HAVE data dependencies. Scoped
+  // that way the finding stops being "either this route needs none, or the sweep
+  // is measuring nothing" and becomes one claim: the import graph found N query
+  // hooks reachable from here and not one of them fired.
+  if (!redirectedTo && !unreachable && (ROUTE_QUERIES.get(route) ?? 0) > 0
+      && !L.requests.some((r) => r.type === 'xhr' || r.type === 'fetch') && inPage.length === 0)
+    push('verify.no-data-traffic', 'P1', ROUTE_QUERIES.get(route) + ' query hook(s) are reachable from this route and none of them fired -- no request at the network layer or in-page');
 
   // Request waterfall: B starting right after A finished, repeatedly, is a
   // dependent chain. Every link is a full round trip added to time-to-data, and
@@ -505,25 +629,109 @@ async function sweepRoute(route) {
 // confirm any perf finding from a parallel run with a serial pass before
 // filing it as truth.
 const PARALLEL = Math.max(1, Math.min(8, Number(arg('parallel', '1')) || 1));
-const records = new Array(routes.length);
+
+/* --------------------------------------------------------------- warm-up */
+
+// Two races, both of which manufacture findings about the harness rather than
+// the app, and both of which a warm pass closes.
+//
+// 1. COLD COMPILE. A dev server compiles a route on its first request. Measured:
+//    `✓ Compiled /tasks in 30.5s` against a 30000ms goto timeout -- the route
+//    lost the race by 500ms and was filed as unreachable. A plain HTTP GET
+//    triggers the same compile at a fraction of the cost of a browser navigation.
+// 2. SERVICE-WORKER CLAIM. A mock service worker does not intercept until it
+//    CONTROLS the page, so the first navigation of a run issues its requests to
+//    the real origin and 404s. Measured: first load `GET /v1/auth/me -> 404`;
+//    second load, 20 requests, all 200. Every 404 in that run was the harness.
+//
+// A previous warm-up attempt was reverted for being unproven. So this one
+// REPORTS what it achieved -- report.warm and report.serviceWorker -- and the
+// service-worker state is one of 'claimed' / 'registered-not-controlling' /
+// 'none'. An unproven fix that says so is worth keeping; one that stays silent
+// is not, which is the whole disagreement that reverted the last attempt.
+
+async function httpWarm(list) {
+  const t0 = Date.now();
+  let ok = 0;
+  for (const r of list) {
+    try {
+      const res = await fetch(BASE + r, { signal: AbortSignal.timeout(WARM_MS) });
+      await res.arrayBuffer();
+      ok++;
+    } catch { /* a route that will not warm is measured cold, and says so below */ }
+  }
+  report.warm = { requested: list.length, compiled: ok, seconds: Math.round((Date.now() - t0) / 1000) };
+}
+
+// Drive one real navigation so a service worker can install AND claim. `ready`
+// resolves at activation, which is EARLIER than control of the current page --
+// that gap is exactly where the previous attempt failed silently, so an
+// uncontrolled page is reloaded once (a controlled load is what claims it) and
+// the outcome is reported either way.
+async function swWarm(ctx) {
+  const page = await ctx.newPage();
+  try {
+    await page.goto(BASE + '/', { waitUntil: 'load', timeout: NAV_MS }).catch(() => {});
+    const check = () => page.evaluate(async () => {
+      if (!('serviceWorker' in navigator)) return 'none';
+      try { await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(r, 8000))]); } catch { return 'none' }
+      const regs = await navigator.serviceWorker.getRegistrations().catch(() => []);
+      if (!regs.length) return 'none';
+      return navigator.serviceWorker.controller ? 'claimed' : 'registered-not-controlling';
+    }).catch(() => 'unknown');
+    let state = await check();
+    if (state === 'registered-not-controlling') {
+      await page.reload({ waitUntil: 'load', timeout: NAV_MS }).catch(() => {});
+      state = await check();
+    }
+    return state;
+  } finally { await page.close(); }
+}
+
+/* ----------------------------------------------------------------- resume */
+
+// An hours-long sweep that dies at route 40 should not restart at route 1. Keeps
+// every record that was actually measured; drops the ones that were not, so a
+// resumed run cannot inherit a gap and report it as covered.
+function resumeRecords() {
+  if (!flag('resume') || !fs.existsSync(JSON_OUT)) return new Map();
+  try {
+    const prev = JSON.parse(fs.readFileSync(JSON_OUT, 'utf8'));
+    const keep = new Map();
+    for (const r of prev.routes ?? []) {
+      if (r.route.startsWith('(')) continue;
+      if (r.findings?.some((f) => f.kind === 'route.unreachable')) continue;
+      keep.set((r.role ?? 'default') + ' ' + r.route, r);
+    }
+    return keep;
+  } catch { return new Map(); }
+}
+
+/* ------------------------------------------------------------- role sweep */
+
+const ROLES = loadRoles();
+report.roles = ROLES.map((r) => ({ name: r.name, owns: r.owns, excludes: r.excludes, auth: path.relative(REPO, r.auth) }));
+const RESUMED = resumeRecords();
+
+if (!flag('no-warm')) await httpWarm(routes);
+
+let records = [];
 let nextIdx = 0;
+let roleRoutes = [];
 async function sweepWorker() {
   for (;;) {
     const idx = nextIdx++;
-    if (idx >= routes.length) return;
-    const route = routes[idx];
+    if (idx >= roleRoutes.length) return;
+    const route = roleRoutes[idx];
     // Liveness first: when the dev server has died, every remaining route would
     // report route.unreachable -- 40 copies of one infrastructure failure dressed
     // up as app defects. One retry covers a restart-in-progress.
     if (!(await serverAlive())) {
-      await wait(2000);
-      if (!(await serverAlive())) {
-        report.aborted = 'server unreachable at route ' + (idx + 1) + '/' + routes.length + ' (' + route + ') -- partial results kept';
-        report.routes = records.filter(Boolean);
-        writeReport();
-        console.error('sweep: ' + report.aborted);
-        process.exit(2);
-      }
+      report.aborted = 'server unreachable at route ' + (idx + 1) + '/' + roleRoutes.length + ' (' + route + ', role ' + currentRole + ') -- partial results kept; rerun with --resume to continue from here';
+      report.routes = records.concat(roleRecords.filter(Boolean));
+      writeReport();
+      console.error('sweep: ' + report.aborted);
+      process.exit(2);
     }
     let { record, unreachable } = await sweepRoute(route);
     // One retry for a route that timed out or dropped: a transient hiccup that
@@ -536,13 +744,51 @@ async function sweepWorker() {
         record.findings.push({ kind: 'route.flaky', severity: 'P2', at: '(page)', detail: 'first visit failed, retry succeeded -- intermittent' });
       }
     }
-    records[idx] = record;
-    report.routes = records.filter(Boolean);   // inventory order, however workers finish
+    record.role = currentRole;
+    roleRecords[idx] = record;
+    report.routes = records.concat(roleRecords.filter(Boolean));   // inventory order, however workers finish
     writeReport();
   }
 }
-await Promise.all(Array.from({ length: Math.min(PARALLEL, routes.length) }, sweepWorker));
-report.routes = records.filter(Boolean);
+
+let roleRecords = [];
+for (const role of ROLES) {
+  currentRole = role.name;
+  const owned = routes.filter((r) => roleOwns(role, r));
+  const already = owned.filter((r) => RESUMED.has(role.name + ' ' + r));
+  roleRoutes = owned.filter((r) => !RESUMED.has(role.name + ' ' + r));
+  records.push(...already.map((r) => RESUMED.get(role.name + ' ' + r)));
+  if (!owned.length) {
+    console.error('sweep: role "' + role.name + '" owns no routes -- check `owns` in verify.roles.json');
+    continue;
+  }
+  if (!roleRoutes.length) continue;
+
+  // Reuse the primary context for the default/first role so the auto-login
+  // state captured above is not thrown away.
+  const roleCtx = role.auth === AUTH ? context : await makeContext(role.auth);
+  const prevCtx = context;
+  context = roleCtx;
+  // Same path under two principals renders two different pages, so the
+  // measured-once dedup is per role. Sharing it across roles would silently
+  // skip the portal's version of a path the staff lens already visited.
+  measured.clear();
+  const sw = await swWarm(roleCtx);
+  (report.serviceWorker ??= {})[role.name] = sw;
+
+  roleRecords = new Array(roleRoutes.length);
+  nextIdx = 0;
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, roleRoutes.length) }, sweepWorker));
+  records.push(...roleRecords.filter(Boolean));
+  roleRecords = [];
+  report.routes = records;
+  writeReport();
+
+  context = prevCtx;
+  if (roleCtx !== prevCtx) await roleCtx.close();
+}
+currentRole = 'default';
+report.routes = records;
 
 /* -------------------------------------------------- app-owned journeys */
 
@@ -565,11 +811,11 @@ if (journeyFile && !flag('no-journeys')) {
     const L = attachListeners(page);
     let probe = { findings: [], metrics: {} };
     try {
-      await page.goto(BASE + (j.start ?? '/'), { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(BASE + (j.start ?? '/'), { waitUntil: 'domcontentloaded', timeout: NAV_MS });
       await settleAndLand(page, j.start ?? '/');
       await j.run(page, { base: BASE, settle: () => page.waitForTimeout(SETTLE_MS) });
       await page.waitForTimeout(SETTLE_MS);
-      probe = await probeFn(page);
+      probe = graded(await probeFn(page));
     } catch (e) {
       L.push('journey.failed', 'P0', (j.name ?? 'journey') + ': ' + String(e).split('\n')[0].slice(0, 200));
     }
@@ -601,7 +847,7 @@ if (flag('mutate') && fs.existsSync(INVENTORY)) {
     const sentinel = 'fv-probe-' + Date.now();
     const findings = [];
     try {
-      await page.goto(BASE + risk.route, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(BASE + risk.route, { waitUntil: 'domcontentloaded', timeout: NAV_MS });
       await settleAndLand(page, risk.route);
       const hasForm = await page.evaluate(() => !!document.querySelector('form input, form textarea'));
       if (!hasForm) { report.routes.push({ route: '(mutate: ' + risk.route + ')', metrics: {}, findings: [], skipped: 'no form on the mutation route -- cover this risk with a journey' }); await page.close(); continue; }
@@ -703,17 +949,36 @@ const reached = report.routes.filter((r) => !r.redirectedTo && !r.route.startsWi
 const swept = report.routes.filter((r) => !r.route.startsWith('(')).length;
 // Every summary field is set BEFORE the final serialize; fields added after a
 // write exist only in this process's memory and never reach the report.
+// Coverage is reported beside the findings, never inside them. A run that
+// measured 41 of 51 routes and found nothing is not the same claim as a run that
+// measured 51 of 51 and found nothing, and only one of those is "clean".
+const ownedByNoRole = routes.filter((r) => !ROLES.some((role) => roleOwns(role, r)));
 report.summary = {
   routes: report.routes.length, routesRequested: swept, routesReached: reached,
+  routesUnreached: report.unreached.length, routesUnowned: ownedByNoRole.length,
+  roles: ROLES.map((r) => r.name),
   findings: all.length, ...bySev,
 };
+if (ownedByNoRole.length) report.unowned = ownedByNoRole;
 report.finished = new Date().toISOString();
 writeReport();
 
-console.log('\n  ' + BASE + '  ' + swept + ' routes at ' + WIDTH + 'px');
-if (reached < swept)
-  console.log('  REACHED ' + reached + '/' + swept + ' -- the rest redirected (auth?); they were NOT measured');
-console.log('  ' + all.length + ' findings  ' + Object.entries(bySev).map(([k, v]) => k + ':' + v).join('  ') + '\n');
+console.log('\n  ' + BASE + '  ' + swept + ' routes at ' + WIDTH + 'px'
+  + (ROLES.length > 1 ? '  as ' + ROLES.map((r) => r.name).join(', ') : ''));
+if (report.warm) console.log('  warm-up: ' + report.warm.compiled + '/' + report.warm.requested + ' routes precompiled in ' + report.warm.seconds + 's');
+if (report.serviceWorker) console.log('  service worker: ' + Object.entries(report.serviceWorker).map(([r, s]) => r + '=' + s).join(', '));
+// Coverage first and separately: these are not defects, they are the routes this
+// run declines to grade, and mixing them into the finding list is how a report
+// spends 10 of its 13 P1s describing the caller's cookie jar.
+if (report.unreached.length) {
+  console.log('\n  NOT MEASURED  ' + report.unreached.length + ' of ' + swept + ' routes -- redirected, so nothing below covers them:');
+  for (const u of report.unreached.slice(0, 8)) console.log('    ' + u.route + '  -> ' + u.landedOn + '  (as ' + u.role + ')');
+  if (report.unreached.length > 8) console.log('    ... and ' + (report.unreached.length - 8) + ' more in ' + JSON_OUT);
+  console.log('    Give each one an owning role in verify.roles.json, or accept them as out of scope.');
+}
+if (ownedByNoRole.length)
+  console.log('\n  UNOWNED  ' + ownedByNoRole.length + ' route(s) match no role in verify.roles.json and were never visited: ' + ownedByNoRole.slice(0, 6).join(', '));
+console.log('\n  ' + all.length + ' findings  ' + Object.entries(bySev).map(([k, v]) => k + ':' + v).join('  ') + '\n');
 for (const [kind, n] of Object.entries(byKind).sort((a, b) => b[1] - a[1])) {
   const first = all.find((f) => f.kind === kind);
   console.log('  ' + String(n).padStart(4) + '  ' + sevOf(first) + '  ' + kind);

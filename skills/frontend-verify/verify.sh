@@ -2,7 +2,7 @@
 # One command. Inventory -> classify -> sweep, in that order, cheapest first.
 #
 #   verify.sh <repoRoot> [--base URL] [--auth state.json] [--width N] [--quiet]
-#                        [--mutate] [--ratchet]
+#                        [--mutate] [--ratchet] [--resume] [--prod] [--no-warm]
 #
 #   verify.sh /path/to/repo                          static only, seconds, no install
 #   verify.sh /path/to/repo --base http://localhost:3000   + the runtime sweep
@@ -11,6 +11,20 @@
 #              runtime. Dev database only.
 #   --ratchet  fix-loop guard: total findings may never exceed the best run seen
 #              (.verify/ratchet.json); the baseline tightens automatically.
+#   --resume   continue an aborted sweep instead of restarting it; already
+#              measured routes are kept, unmeasured ones are re-visited.
+#   --prod     the base URL is a PRODUCTION build, so timing findings grade
+#              normally. Without it they are P3: against a dev server the number
+#              measured is the compiler's, not the app's.
+#   --no-warm  skip the precompile pass. The warm pass exists because a dev
+#              server compiles a route on first request (measured: 30.5s) and a
+#              mock service worker does not intercept until it controls a page.
+#
+#   Multiple principals: put <repo>/verify.roles.json beside the repo and each
+#   role sweeps only the routes it OWNS. See "Roles" in SKILL.md.
+#
+#   Nothing else may build while the sweep runs -- a concurrent web build starves
+#   the dev server and the whole run aborts as "server unreachable".
 #
 # Exit: 0 clean · 1 P0/P1 findings (or ratchet regression) · 2 could not run.
 # That exit code is the definition of done -- it is what a Stop hook, a
@@ -18,7 +32,7 @@
 set -uo pipefail
 
 SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO=""; BASE=""; AUTH=""; WIDTH=""; QUIET=0; MUTATE=0; RATCHET=0; LOGIN=""; PARALLEL=""
+REPO=""; BASE=""; AUTH=""; WIDTH=""; QUIET=0; MUTATE=0; RATCHET=0; LOGIN=""; PARALLEL=""; PASSTHRU=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --base)  BASE="${2:-}"; shift 2 ;;
@@ -29,7 +43,12 @@ while [ $# -gt 0 ]; do
     --quiet) QUIET=1; shift ;;
     --mutate) MUTATE=1; shift ;;
     --ratchet) RATCHET=1; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    # Straight through to sweep.mjs. --resume continues an aborted sweep instead
+    # of restarting it, --prod says the base URL is a production build so timing
+    # findings grade normally, --no-warm skips the precompile pass.
+    --resume|--prod|--no-warm|--leak-check) PASSTHRU+=( "$1" ); shift ;;
+    --nav-timeout|--warm-timeout|--settle) PASSTHRU+=( "$1" "${2:-}" ); shift 2 ;;
+    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
     *) [ -z "$REPO" ] && REPO="$1" || true; shift ;;
   esac
 done
@@ -83,6 +102,7 @@ if [ -n "$BASE" ]; then
   [ -n "$PARALLEL" ] && args+=( --parallel "$PARALLEL" )
   [ -n "$LOGIN" ] && args+=( --login-user "${LOGIN%%:*}" --login-pass "${LOGIN#*:}" )
   [ "$MUTATE" -eq 1 ] && args+=( --mutate )
+  [ ${#PASSTHRU[@]} -gt 0 ] && args+=( "${PASSTHRU[@]}" )
   node "$SKILL/bin/sweep.mjs" "${args[@]}" >"$OUT/sweep.log" 2>&1
   sw=$?
   [ "$QUIET" -eq 1 ] || sed -n '2,40p' "$OUT/sweep.log"
@@ -133,7 +153,24 @@ if [ "$RATCHET" -eq 1 ]; then
   ' "$OUT" "$([ -n "$BASE" ] && echo runtime || echo static)" >"$ROUT" || rc=1
 fi
 
+# PASS must carry the DENOMINATOR. "No P0/P1 findings" over 41 of 51 routes and
+# over 51 of 51 are different claims, and printing them identically is how a
+# partial run gets read as a clean one -- the exact failure this skill exists for.
+COVER=""
+if [ -n "$BASE" ]; then
+  COVER=$(node -e '
+    try {
+      const s = require(process.argv[1]).summary ?? {};
+      if (s.routesRequested == null) process.exit(0);
+      const un = s.routesUnreached ?? 0, uo = s.routesUnowned ?? 0;
+      process.stdout.write("  ·  swept " + s.routesReached + "/" + s.routesRequested + " routes"
+        + (un ? ", " + un + " NOT MEASURED (redirected)" : "")
+        + (uo ? ", " + uo + " unowned" : ""));
+    } catch {}
+  ' "$OUT/sweep.json" 2>/dev/null)
+fi
+
 say ""
-if [ "$rc" -eq 0 ]; then say "  PASS  $ROUTES routes analysed, no P0/P1 findings"
-else say "  FAIL  P0/P1 findings above  ·  reports in $OUT/"; fi
+if [ "$rc" -eq 0 ]; then say "  PASS  $ROUTES routes analysed, no P0/P1 findings$COVER"
+else say "  FAIL  P0/P1 findings above  ·  reports in $OUT/$COVER"; fi
 exit "$rc"

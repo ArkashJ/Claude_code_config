@@ -120,6 +120,25 @@ async page => {
         const r = el.getBoundingClientRect();
         const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
         if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) continue;
+        // Scrolled out of its own clipping ancestor is NOT occluded. A nav with
+        // overflow-y:auto still reports a layout rect for items below the fold,
+        // so elementFromPoint at that coordinate returns whatever is PAINTED
+        // there -- typically the footer sitting under the scroll box. The user
+        // scrolls and clicks the control fine.
+        //
+        // Measured, not theorised: a sidebar nav item one row past its
+        // container's bottom edge produced this on 37 of 51 routes in one run,
+        // every one reading "clicks land on span.block instead" -- the account
+        // name in the sign-out block below the nav. 37 P1s that are all one
+        // scrollable list is exactly the noise that stops a report being read.
+        let clipped = false;
+        for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+          const s = getComputedStyle(a);
+          if (!/auto|scroll|hidden|clip/.test(s.overflowY + s.overflowX)) continue;
+          const ar = a.getBoundingClientRect();
+          if (cx < ar.left || cx > ar.right || cy < ar.top || cy > ar.bottom) { clipped = true; break; }
+        }
+        if (clipped) continue;
         const hit = document.elementFromPoint(cx, cy);
         if (!hit || hit === el || el.contains(hit) || hit.contains(el)) continue;
         // A label wrapping its input is how custom checkboxes are built.

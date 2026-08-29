@@ -114,7 +114,12 @@ absent '2 interactive element(s) under 24px'
 # the label-wrapped / aria-labeled / placeholder inputs were miscounted.
 have_exact '2 control(s) with no accessible name'
 absent '3 control(s) with no accessible name'
-# Exactly ONE occluded control: the pointer-events:none overlay must pass through.
+# Exactly ONE occluded control. TWO things must pass through and not be counted:
+# the pointer-events:none overlay, and the button scrolled out of its own
+# overflow-y:auto box. The second is why this stays have_exact rather than have --
+# it fired on 37 of 51 routes of one real app, every instance the same sidebar
+# nav item below the fold, reading "clicks land on span.block instead". 37 P1s
+# that are all one scrollable list is what stops a report being read at all.
 have_exact '1 interactive element(s) whose center is covered'
 absent '2 interactive element(s) whose center is covered'
 
@@ -330,19 +335,32 @@ mkdir -p "$TMP/repo-auth/.verify"
 echo "--- auto-login"
 node "$SKILL/bin/sweep.mjs" --repo "$TMP/repo-auth" --base "http://127.0.0.1:$PORT4" \
   --routes / --json "$TMP/noauth.json" >/dev/null 2>&1
-if grep -q '"kind": "route.not-reached"' "$TMP/noauth.json"; then
-  echo "  ok    without credentials, the gated route honestly reports not-reached"
-else echo "  MISS  gated route measured as reached without auth"; fail=1; fi
+# A route the sweep never reached is a COVERAGE gap, not a defect: it belongs in
+# report.unreached, and must NOT appear among the findings. Asserting both
+# directions is the point -- the old contract filed it as a P1 finding, which put
+# the caller's cookie jar in the same list as the app's bugs.
+if node -e 'const r=require(process.argv[1]);
+  const unreached=(r.unreached??[]).length>0;
+  const asFinding=r.routes.some((x)=>x.findings.some((f)=>f.kind==="route.not-reached"));
+  process.exit(unreached && !asFinding ? 0 : 1)' "$TMP/noauth.json" 2>/dev/null; then
+  echo "  ok    without credentials, the gated route lands in unreached and NOT in findings"
+else echo "  MISS  gated route not recorded as a coverage gap without auth"; fail=1; fi
 
 node "$SKILL/bin/sweep.mjs" --repo "$TMP/repo-auth" --base "http://127.0.0.1:$PORT4" \
   --routes / --login-user "qa@example.com" --login-pass "secret" \
   --json "$TMP/auth.json" >"$TMP/auth-out.txt" 2>&1
+# A report that was never written makes every grep below return non-zero, which
+# reads as "the bad string is absent" and PASSES. Check the file exists first, or
+# a crashed sweep congratulates itself.
+if [ ! -s "$TMP/auth.json" ]; then
+  echo "  FAIL  auto-login run wrote no report at all -- sweep crashed:"; tail -12 "$TMP/auth-out.txt"; fail=1
+fi
 if [ -s "$TMP/repo-auth/.verify/auth.json" ]; then echo "  ok    storage state saved for future runs"
 else echo "  MISS  auth state not saved"; fail=1; fi
-if grep -q '"kind": "route.not-reached"' "$TMP/auth.json"; then
-  echo "  MISS  auto-login did not unlock the gated route"; cat "$TMP/auth-out.txt" | tail -5; fail=1
-else echo "  ok    auto-login unlocked and measured the gated route"; fi
-if grep -q 'Secret' "$TMP/auth.json" || ! grep -q '"kind": "render.empty"' "$TMP/auth.json"; then
+if [ -s "$TMP/auth.json" ] && node -e 'const r=require(process.argv[1]); process.exit((r.unreached??[]).length===0?0:1)' "$TMP/auth.json" 2>/dev/null; then
+  echo "  ok    auto-login unlocked and measured the gated route"
+else echo "  MISS  auto-login did not unlock the gated route"; tail -5 "$TMP/auth-out.txt"; fail=1; fi
+if [ -s "$TMP/auth.json" ] && { grep -q 'Secret' "$TMP/auth.json" || ! grep -q '"kind": "render.empty"' "$TMP/auth.json"; }; then
   echo "  ok    the real page behind the gate was rendered"
 else echo "  MISS  gate page empty after login"; fail=1; fi
 
@@ -362,6 +380,51 @@ check("buggy route kept its findings", r.routes[0].findings.some((f) => f.kind =
 check("clean route stayed clean of leaks", !r.routes[1].findings.some((f) => f.kind === "value.leak"));
 process.exit(bad);
 ' "$TMP/par.json" || fail=1
+
+# ---------------------------------------------------------------------------
+# ROLE OWNERSHIP. An app with two principals refuses each other's routes BY
+# DESIGN, so a single lens can never reach more than its own half. Ownership is
+# what stops the other half being reported as defects: on a real repo the portal
+# lens produced 45 "landed on /login" P1s, none of them a bug.
+# Asserted here: every route is visited under the role that owns it, and a route
+# no role claims is counted as UNOWNED rather than silently skipped.
+echo "--- role ownership"
+mkdir -p "$TMP/repo-roles"
+cat > "$TMP/repo-roles/verify.roles.json" <<'JSON'
+{ "staff":  { "owns": ["/"], "excludes": ["/ghost"] },
+  "ghosts": { "owns": ["/ghost"] } }
+JSON
+node "$SKILL/bin/sweep.mjs" --repo "$TMP/repo-roles" --base "http://127.0.0.1:$PORT" \
+  --routes /,/clean/,/ghost/ --json "$TMP/roles.json" >/dev/null 2>&1
+node -e '
+const r = require(process.argv[1]); let bad = 0;
+const check = (l, ok, got) => { console.log((ok ? "  ok    " : "  MISS  ") + l + "  (" + got + ")"); if (!ok) bad = 1; };
+const byRoute = Object.fromEntries(r.routes.filter((x) => !x.route.startsWith("(")).map((x) => [x.route, x.role]));
+check("staff lens swept the routes it owns", byRoute["/"] === "staff" && byRoute["/clean/"] === "staff",
+      JSON.stringify(byRoute));
+check("ghost lens swept only its own subtree", byRoute["/ghost/"] === "ghosts", byRoute["/ghost/"]);
+check("every route visited exactly once", Object.keys(byRoute).length === 3, Object.keys(byRoute).length);
+check("no route filed as a defect for belonging to another role",
+      !r.routes.some((x) => x.findings.some((f) => f.kind === "route.not-reached")), "none");
+check("both roles recorded in the summary",
+      (r.summary.roles || []).join(",") === "staff,ghosts", (r.summary.roles || []).join(","));
+process.exit(bad);
+' "$TMP/roles.json" || fail=1
+
+# A route no role claims must be COUNTED, not quietly dropped. Silently skipping
+# it is how a run reports PASS over routes nobody ever opened.
+cat > "$TMP/repo-roles/verify.roles.json" <<'JSON'
+{ "ghosts": { "owns": ["/ghost"] } }
+JSON
+node "$SKILL/bin/sweep.mjs" --repo "$TMP/repo-roles" --base "http://127.0.0.1:$PORT" \
+  --routes /,/clean/,/ghost/ --json "$TMP/roles2.json" >/dev/null 2>&1
+node -e '
+const r = require(process.argv[1]);
+const ok = r.summary.routesUnowned === 2 && (r.unowned || []).includes("/clean/");
+console.log((ok ? "  ok    " : "  MISS  ") + "routes owned by no role counted as unowned  (" +
+  r.summary.routesUnowned + " " + JSON.stringify(r.unowned) + ")");
+process.exit(ok ? 0 : 1);
+' "$TMP/roles2.json" || fail=1
 
 echo
 if [ "$fail" -eq 0 ]; then echo "SELFTEST PASS"; else echo "SELFTEST FAIL"; fi

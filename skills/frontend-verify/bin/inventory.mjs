@@ -59,7 +59,24 @@ function gitFiles(root) {
   return r.stdout.split('\0').filter(Boolean).map((f) => path.join(root, f));
 }
 
-const FILES = (gitFiles(ROOT) ?? walk(ROOT)).filter((f) => SRC_EXT.has(path.extname(f)) && !SKIP_DIR.test(f));
+// Same design-lab exclusion and same <repo>/.verifyignore as classify.mjs -- an
+// ignore file that applies to only one phase is a trap, because the route list
+// and the findings would then disagree about what the app is.
+const LAB = /(^|\/)(_proto|proto|design-lab|playground|sandbox|scratch)(\/|$)/;
+function ignoreMatcher(root) {
+  let lines = [];
+  try {
+    lines = fs.readFileSync(path.join(root, '.verifyignore'), 'utf8')
+      .split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean);
+  } catch { /* no ignore file, defaults only */ }
+  const res = lines.map((l) => new RegExp(
+    l.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^\\0]*').replace(/\?/g, '.')));
+  return (relPath) => LAB.test(relPath) || res.some((r) => r.test(relPath));
+}
+const ignored = ignoreMatcher(ROOT);
+
+const FILES = (gitFiles(ROOT) ?? walk(ROOT))
+  .filter((f) => SRC_EXT.has(path.extname(f)) && !SKIP_DIR.test(f) && !ignored(path.relative(ROOT, f)));
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
 const SOURCE = new Map(FILES.map((f) => [f, read(f)]));
 const rel = (f) => path.relative(ROOT, f);
@@ -253,19 +270,48 @@ function keyEntity(expr) {
 
 // The endpoint a hook body talks to — used for blast radius and, later, for
 // DOM-count-vs-API parity.
-const endpointOf = (body) => (body.match(/\.(?:get|post|put|patch|delete)\s*\(\s*[`"']([^`"']+)/)
-  ?? body.match(/fetch\s*\(\s*[`"']([^`"']+)/) ?? [])[1] ?? null;
+//
+// The verb alternation is case-INSENSITIVE on purpose. openapi-fetch, openapi-typescript
+// and every generated client built on them spell the method in caps
+// (`apiClient.POST("/v1/accounts")`), and a lowercase-only matcher resolves the
+// endpoint of exactly none of them. That is not a partial miss: `endpoint` feeds
+// `resource()`, which feeds `resourceMatrix`, which is the blast radius of every
+// sync risk AND the target list for --mutate. On a real 145-query app it produced
+// ONE resourceMatrix entry and 7 syncRisks all marked unresolved — the headline
+// finding silently reduced to "could not determine what goes stale" everywhere.
+// If you tighten this regex, check resourceMatrix's size against a grep of the
+// repo's HTTP calls before believing the result (see "Structural tells" in SKILL.md).
+const ENDPOINT_CALL = /\.(?:get|post|put|patch|delete)\s*\(\s*[`"']([^`"']+)/i;
+// Typed wrappers pass the path as a bare argument rather than as a method name
+// (`useApiQuery(queryKeys.health(), "/v1/portal/health")`). Requiring an
+// `/api/` or `/v1/` style prefix keeps this from matching an href or a CSS path.
+const ENDPOINT_LITERAL = /[`"'](\/(?:api|v\d+|rest|graphql)\/[^`"'\s]+)[`"']/;
+const endpointOf = (body) => (body.match(ENDPOINT_CALL)
+  ?? body.match(/fetch\s*\(\s*[`"']([^`"']+)/)
+  ?? body.match(ENDPOINT_LITERAL) ?? [])[1] ?? null;
+
+// The HTTP method, same case-insensitivity for the same reason. A GET wrapped in
+// useMutation (opening a PDF, kicking off a download) writes nothing, so it has no
+// blast radius and must not be filed as a sync risk.
+const verbOf = (body) => ((body.match(/\.(get|post|put|patch|delete)\s*\(/i) ?? [])[1] ?? '').toUpperCase() || null;
 
 // The REST resource an endpoint addresses: /admin-panel/settings/?x -> settings.
 // Leading api/v1/admin-panel style prefixes carry no entity information, and
 // treating them as the entity collapses every route onto one bucket.
 const PREFIX = /^(api|v\d+|admin-panel|admin|rest|graphql|public|internal)$/;
+// Every meaningful segment of an endpoint, outermost first. `{id}` is a path
+// parameter exactly like `:id` and `$id` -- leaving it in made it a "resource"
+// and shifted every nested endpoint's segments by one.
+function segments(endpoint) {
+  if (!endpoint) return [];
+  return endpoint.split('?')[0].split('/').filter(Boolean)
+    .filter((s) => !s.startsWith('$') && !s.startsWith(':') && !/^\{.*\}$/.test(s) && !/^\d+$/.test(s))
+    .filter((s) => !PREFIX.test(s));
+}
 function resource(endpoint) {
   if (!endpoint) return null;
-  const segs = endpoint.split('?')[0].split('/').filter(Boolean)
-    .filter((s) => !s.startsWith('$') && !s.startsWith(':') && !/^\d+$/.test(s));
-  const meaningful = segs.filter((s) => !PREFIX.test(s));
-  return (meaningful[0] ?? segs[0] ?? null);
+  const all = endpoint.split('?')[0].split('/').filter(Boolean);
+  return segments(endpoint)[0] ?? all[0] ?? null;
 }
 
 // `mutationFn: postLogout` hides the URL one module away. Without following it,
@@ -427,11 +473,11 @@ function extractWrapped(file, names, kind) {
       // /api/contacts but invalidates ['invoices'] would read as "writes
       // invoices, invalidates invoices" and pass.
       writes: (rec.endpoint ? resource(rec.endpoint) : null) ?? rec.entity ?? invalidates[0],
-      verb: (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] ?? null,
+      verb: verbOf(body),
       invalidates: [...new Set(invalidates)],
       clearsCache: CACHE_OP.test(body) || called.some((n) => INVALIDATOR_NAMES.has(n)),
       clearsIndirectly: called.some((n) => INVALIDATOR_NAMES.has(n)),
-      nonWrite: isNonWrite(rec.via, hook, rec.endpoint),
+      nonWrite: isNonWrite(rec.via, hook, rec.endpoint) || verbOf(body) === 'GET',
     });
   }
   return out;
@@ -512,12 +558,12 @@ function extractMutations(file) {
     out.push({
       // Endpoint resource first -- see the identical note in extractWrapped.
       writes: (endpoint ? resource(endpoint) : null) ?? setQuery[0] ?? invalidates[0],
-      verb: (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] ?? null,
+      verb: verbOf(body),
       endpoint, fnName, hook,
       invalidates: [...new Set([...invalidates, ...setQuery])],
       clearsCache: clearsDirectly || clearsIndirectly,
       clearsIndirectly,
-      nonWrite: isNonWrite(fnName, hook, endpoint)
+      nonWrite: isNonWrite(fnName, hook, endpoint) || verbOf(body) === 'GET'
         || (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] === 'get',
       file: rel(file), line: lineAt(src, m.index),
     });
@@ -571,6 +617,12 @@ const byLoc = new Map(allMutations.map((m) => [`${m.file}:${m.line}`, m]));
 // THE FINDING. Two shapes, both meaning "a write happened and some view still
 // shows the old value" — the cross-page sync bug, located before a browser opens.
 const syncRisks = [];
+// Share of all routes past which a resource counts as ambient, not as an entity.
+// The absolute floor matters as much as the share: in a 3-route app every
+// resource clears 40%, and demoting there would blind the tool on exactly the
+// small repos where the blast radius is easiest to state precisely.
+const AMBIENT_SHARE = 0.4;
+const AMBIENT_MIN_READERS = 10;
 // Loose spelling match: 'contact-list' covers 'contacts', 'contacts' covers
 // 'contact'. Prefer a miss to a false positive -- 'people' vs 'persons' is a
 // miss, and that is the right trade.
@@ -582,7 +634,18 @@ for (const m of byLoc.values()) {
   // be resolved. That is NOT the same as zero affected routes, and reporting it
   // as an empty list would understate the finding.
   const res = resource(m.endpoint);
-  const readers = (res ? resourceMatrix[res] : null) ?? (m.writes ? matrix[m.writes] : null) ?? null;
+  const readersRaw = (res ? resourceMatrix[res] : null) ?? (m.writes ? matrix[m.writes] : null) ?? null;
+  // A resource that most of the app reads is not an entity, it is an ambient
+  // concern -- `auth`, `session`, `me`, `config`, `settings`. "This write leaves
+  // 30 of 57 routes stale" is the denominator failure SKILL.md warns about: the
+  // number is large because the resource is everywhere, not because the write is
+  // dangerous. Measured on a real repo, /v1/auth/magic-link/request (which sends
+  // an email and mutates no rendered collection) claimed 30 stale routes and
+  // outranked four genuine findings. So: past the threshold the blast radius is
+  // reported as undetermined rather than as evidence -- a weaker claim, honestly
+  // labelled, which is the trade this tool makes everywhere else.
+  const ambient = readersRaw && readersRaw.length >= AMBIENT_MIN_READERS && readersRaw.length > routeReport.length * AMBIENT_SHARE;
+  const readers = ambient ? null : readersRaw;
   const name = m.hook ? `${m.hook}()` : `${m.file}:${m.line}`;
   if (!m.invalidates.length) {
     // Clears the cache through a helper or setQueryData whose keys we cannot
@@ -600,6 +663,7 @@ for (const m of byLoc.values()) {
       invalidates: [], staleRoutes: readers,
       detail: `${name} writes ${m.endpoint ?? m.writes ?? 'server state'} and invalidates no query`
         + (readers?.length ? `; ${readers.length} route(s) render it`
+          : ambient ? `; "${res}" is read by ${readersRaw.length} of ${routeReport.length} routes, so it is an ambient concern and the blast radius is not meaningful`
           : m.writes ? `; nothing found rendering "${m.writes}"` : '; could not determine what goes stale'),
     });
     continue;
@@ -612,8 +676,15 @@ for (const m of byLoc.values()) {
   if (m.clearsIndirectly) continue;
   const readerKeys = res ? [...(resourceReaders[res] ?? [])] : [];
   const covers = (k, w) => norm(k) === norm(w) || norm(k).includes(norm(w)) || norm(w).includes(norm(k));
+  // Judge the invalidation against EVERY segment of the endpoint, not only the
+  // outermost one. A PUT to /v1/accounts/{id}/budget/{year} that invalidates
+  // ["budget", "board"] has covered what it wrote; calling that a wrong-key
+  // invalidation because the outermost segment is "accounts" is the nesting,
+  // not a defect. Spot-checked as a false positive on a real repo before it
+  // reached anyone.
+  const written = [...new Set([m.writes, ...segments(m.endpoint)].filter(Boolean))];
   const covered = m.invalidates.some((k) =>
-    (m.writes && covers(k, m.writes)) || readerKeys.some((e) => covers(k, e)));
+    written.some((w) => covers(k, w)) || readerKeys.some((e) => covers(k, e)));
   if (m.writes && !covered && readers?.length) {
     syncRisks.push({
       severity: 'P1', kind: 'partial-invalidation',

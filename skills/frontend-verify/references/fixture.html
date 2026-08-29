@@ -23,6 +23,16 @@
     <button id="buried" aria-label="buried" style="width:44px;height:44px">Go</button>
     <div id="overlay" style="position:absolute;inset:0;z-index:9"></div>
   </div>
+  <!-- must NOT fire: scrolled out of its own overflow-y:auto box. The rect is
+       still reported below the container's bottom edge, so elementFromPoint at
+       that coordinate returns whatever is PAINTED there -- here the footer text.
+       A user scrolls the list and clicks it fine. This shape produced 37 P1s on
+       one real app, every one of them the same sidebar nav. -->
+  <div style="height:44px;overflow-y:auto;width:120px">
+    <div style="height:40px">filler</div>
+    <button aria-label="below the fold" style="width:100px;height:40px">Scrolled</button>
+  </div>
+  <div style="width:120px;height:40px">footer text under the scroll box</div>
   <!-- must NOT fire: the overlay is pointer-events:none, clicks pass through -->
   <div style="position:relative;width:60px;height:44px">
     <button aria-label="reachable" style="width:44px;height:44px">Go</button>

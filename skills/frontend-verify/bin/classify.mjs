@@ -45,7 +45,29 @@ function gitFiles(root) {
   return r.stdout.split('\0').filter(Boolean).map((f) => path.join(root, f));
 }
 
-const FILES = (gitFiles(ROOT) ?? walk(ROOT)).filter((f) => /\.[jt]sx?$/.test(f) && !SKIP.test(f));
+// Design-lab trees: committed (so .gitignore does not cover them), shaped like
+// the app (so every rule fires in them), reachable from no route (so nothing
+// found there can break anything). On a real repo these produced 18 of 19
+// findings -- a report that is 95% noise is a report nobody opens twice.
+// Add repo-specific trees to <repo>/.verifyignore, one substring or glob per line.
+const LAB = /(^|\/)(_proto|proto|design-lab|playground|sandbox|scratch)(\/|$)/;
+
+// Deliberately glob-lite: `*` and `?` only, matched against the repo-relative
+// path. A full matcher would be a dependency, and this file has none by design.
+function ignoreMatcher(root) {
+  let lines = [];
+  try {
+    lines = fs.readFileSync(path.join(root, '.verifyignore'), 'utf8')
+      .split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean);
+  } catch { /* no ignore file, defaults only */ }
+  const res = lines.map((l) => new RegExp(
+    l.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^\\0]*').replace(/\?/g, '.')));
+  return (relPath) => LAB.test(relPath) || res.some((r) => r.test(relPath));
+}
+const ignored = ignoreMatcher(ROOT);
+
+const FILES = (gitFiles(ROOT) ?? walk(ROOT))
+  .filter((f) => /\.[jt]sx?$/.test(f) && !SKIP.test(f) && !ignored(path.relative(ROOT, f)));
 const rel = (f) => path.relative(ROOT, f);
 const lineAt = (src, i) => src.slice(0, i).split('\n').length;
 
@@ -159,7 +181,19 @@ for (const file of FILES) {
     // Empty deps + referenced state/props = the stale closure. Reads the value
     // captured on first render, forever.
     if (deps === '[]') {
-      const reads = [...b.matchAll(/\b([a-z][\w]*)\b(?!\s*[:(])/g)].map((x) => x[1]);
+      // Strip string/template literals and comments before looking for identifier
+      // reads. Without this, addEventListener("online", ...) inside an effect
+      // counts as a read of a state variable named `online` — a false positive on
+      // the single most common shape of a correct []-deps effect (subscribe on
+      // mount, unsubscribe on unmount), which is exactly the code this rule must
+      // stay silent on to be worth reading.
+      const scannable = b
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/\/\/[^\n]*/g, ' ')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+        .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+        .replace(/`(?:[^`\\]|\\.)*`/g, '``');
+      const reads = [...scannable.matchAll(/\b([a-z][\w]*)\b(?!\s*[:(])/g)].map((x) => x[1]);
       const stateNames = [...src.matchAll(/const\s*\[\s*([a-z][\w]*)\s*,\s*set[A-Z]/g)].map((x) => x[1]);
       const captured = [...new Set(reads.filter((r) => stateNames.includes(r)))];
       if (captured.length)
@@ -211,6 +245,20 @@ for (const file of FILES) {
     // reader to ignore the rule that catches the real sink.
     const around = src.slice(Math.max(0, m.index - 200), m.index + 200);
     if (/application\/ld\+json|JSON\.stringify/.test(around)) continue;
+    // A sink can be sanitized upstream of this file entirely (e.g. the server
+    // escapes before the value ever reaches the client) -- undecidable from
+    // this file alone. `verify-ignore: unsanitized-html` is a deliberate,
+    // window-scoped escape hatch: it silences only the matched occurrence, not
+    // the whole file, so it can't accidentally mask a second, real sink placed
+    // elsewhere in the same file. The comment must say WHERE the sanitization
+    // happens, so the claim stays checkable. `decomment` blanks comment text out
+    // of `src` (same length, so indices still line up) -- the marker lives in a
+    // comment, so it has to be read from `raw`, not the decommented window. Wider
+    // than the 200-char default window: this marker routinely stacks above an
+    // existing biome-ignore, which biome requires to sit immediately adjacent to
+    // the sink -- pushing the marker itself further back than a single comment.
+    const rawAround = raw.slice(Math.max(0, m.index - 400), m.index + 200);
+    if (/verify-ignore:\s*unsanitized-html/.test(rawAround)) continue;
     add('unsanitized-html', 'P0', file, lineAt(src, m.index),
       'raw HTML injection with no sanitizer in the file — XSS sink', 'L7.74');
   }
