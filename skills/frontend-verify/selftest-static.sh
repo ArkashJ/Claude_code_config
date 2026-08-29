@@ -70,6 +70,39 @@ export const useContactStore = create((set) => ({
 }))
 TS
 
+# PLANTED: a GENERIC wrapper primitive (key + fn as parameters) plus a concrete
+# hook built on it. Repos wrap the data layer this way, and matching only the bare
+# library names reports ZERO queries on such a codebase -- so syncRisks comes back
+# empty because nothing was found, not because the app is clean.
+mkdir -p "$TMP/src/lib" "$TMP/app/invoices"
+cat > "$TMP/src/lib/api-hooks.ts" <<'TS'
+import { useMutation, useQuery } from '@tanstack/react-query'
+export function useApiQuery(key: unknown[], fn: () => Promise<unknown>) {
+  return useQuery({ queryKey: key, queryFn: fn })
+}
+export function useQueuedWrite(key: unknown[], fn: (b: unknown) => Promise<unknown>) {
+  return useMutation({ mutationKey: key, mutationFn: fn })
+}
+TS
+cat > "$TMP/app/invoices/page.tsx" <<'TSX'
+'use client'
+import { useApiQuery, useQueuedWrite } from '@/src/lib/api-hooks'
+import { createInvoice, listInvoices } from '@/src/api/invoices'
+export default function InvoicesPage() {
+  const { data, isError } = useApiQuery(['invoices'], listInvoices)
+  const add = useQueuedWrite(['invoices'], createInvoice)
+  if (isError) return <p>failed</p>
+  if (!(data as unknown[])?.length) return <p>No invoices yet</p>
+  return <button onClick={() => add.mutate({})}>Add</button>
+}
+TSX
+mkdir -p "$TMP/src/api"
+cat > "$TMP/src/api/invoices.ts" <<'TS'
+import axios from 'axios'
+export async function listInvoices() { return axios.get('/api/invoices') }
+export async function createInvoice(b: unknown) { return axios.post('/api/invoices', b) }
+TS
+
 fail=0
 INV="$TMP/inventory.json"
 node "$SKILL/bin/inventory.mjs" "$TMP" --stdout > "$INV" || { echo "FAIL: inventory.mjs crashed"; exit 1; }
@@ -84,6 +117,10 @@ check("queries found",          j.counts.queries >= 1,       j.counts.queries);
 check("mutations found",        j.counts.mutations >= 1,     j.counts.mutations);
 check("resource matrix built",  Object.keys(j.resourceMatrix).includes("contacts"), Object.keys(j.resourceMatrix).join(","));
 check("sync risk detected",     j.syncRisks.length >= 1,     j.syncRisks.length);
+check("wrapper query counted",  j.routes.some((r) => r.queries.some((x) => x.via === "useApiQuery")),
+      j.routes.flatMap((r) => r.queries).filter((x) => x.via).map((x) => x.via).join(",") || "none");
+check("wrapper mutation counted", j.routes.some((r) => r.mutations.some((x) => x.via === "useQueuedWrite")),
+      j.routes.flatMap((r) => r.mutations).filter((x) => x.via).map((x) => x.via).join(",") || "none");
 check("blast radius resolved",  (j.syncRisks[0] && j.syncRisks[0].staleRoutes || []).length >= 2,
       JSON.stringify((j.syncRisks[0] || {}).staleRoutes));
 process.exit(bad);

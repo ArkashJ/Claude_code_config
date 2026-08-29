@@ -16,6 +16,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
@@ -40,19 +41,59 @@ const PROBE = path.join(path.dirname(new URL(import.meta.url).pathname), 'probe.
 // raw namespace gives `undefined` and fails at launch() with nothing to explain it.
 const unwrap = (mod) => (mod?.chromium ? mod : mod?.default?.chromium ? mod.default : null);
 
-async function loadPlaywright() {
-  const roots = [path.resolve(arg('repo', '.')), process.cwd(), path.resolve(process.env.PLAYWRIGHT_HOME ?? '.')];
-  for (const from of roots) {
-    for (const pkg of ['playwright', '@playwright/test']) {
-      try {
-        const req = createRequire(path.join(from, 'package.json'));
-        const got = unwrap(await import(pathToFileURL(req.resolve(pkg)).href));
-        if (got) return got;
-      } catch { /* try the next package / root */ }
-    }
+// Where a self-installed Playwright lives. Shared on purpose: the browser binary
+// is already a global cache, so only the npm package needs a home, and putting
+// that home in the skill keeps every repo's package.json and lockfile untouched.
+// --install=repo opts into a real devDependency for repos that want one checked in.
+const SHARED = path.join(path.dirname(path.dirname(new URL(import.meta.url).pathname)), '.playwright');
+
+async function tryLoad(root) {
+  for (const pkg of ['playwright', '@playwright/test']) {
+    try {
+      const req = createRequire(path.join(root, 'package.json'));
+      const got = unwrap(await import(pathToFileURL(req.resolve(pkg)).href));
+      if (got) return got;
+    } catch { /* next package */ }
   }
+  return null;
+}
+
+function run(cmd, args, cwd) {
+  const r = spawnSync(cmd, args, { cwd, stdio: 'inherit', encoding: 'utf8' });
+  return r.status === 0;
+}
+
+function installInto(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(path.join(dir, 'package.json')))
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'frontend-verify-runtime', private: true }, null, 2) + '\n');
+  console.error('\n  installing @playwright/test into ' + dir + ' (one time)\n');
+  if (!run('npm', ['install', '--no-audit', '--no-fund', '--save-dev', '@playwright/test'], dir)) return false;
+  // The browser binary lands in a shared OS cache, so this is a no-op after the
+  // first ever install on the machine, whichever repo triggered it.
+  console.error('\n  ensuring the chromium binary is present (shared cache)\n');
+  run('npx', ['--yes', 'playwright', 'install', 'chromium'], dir);
+  return true;
+}
+
+async function loadPlaywright() {
+  const repo = path.resolve(arg('repo', '.'));
+  const roots = [repo, SHARED, process.cwd(), ...(process.env.PLAYWRIGHT_HOME ? [path.resolve(process.env.PLAYWRIGHT_HOME)] : [])];
+  for (const root of roots) { const got = await tryLoad(root); if (got) return got; }
   try { const got = unwrap(await import('playwright')); if (got) return got; } catch { /* fall through */ }
-  console.error('Playwright not found. Install it in the repo under test:\n  npm i -D @playwright/test && npx playwright install chromium');
+
+  if (flag('no-install')) {
+    console.error('Playwright not found and --no-install was passed.\n  npm i -D @playwright/test && npx playwright install chromium');
+    process.exit(2);
+  }
+  const target = arg('install') === 'repo' ? repo : SHARED;
+  if (!installInto(target)) {
+    console.error('Automatic install failed. Install manually:\n  npm i -D @playwright/test && npx playwright install chromium');
+    process.exit(2);
+  }
+  const got = await tryLoad(target);
+  if (got) return got;
+  console.error('Installed Playwright but could not load it from ' + target);
   process.exit(2);
 }
 
@@ -84,6 +125,44 @@ const context = await browser.newContext({
   ...(AUTH && fs.existsSync(AUTH) ? { storageState: AUTH } : {}),
 });
 
+// Playwright's network events only see traffic that reaches the browser's network
+// stack. A service worker (MSW and every mock-first setup) answers fetches INSIDE
+// the page, so page.on('response') fires zero times and every network invariant
+// silently passes -- the tool reports clean on an app it never measured. Patching
+// window.fetch and XHR before app JS runs is the only vantage point that sees both
+// real and intercepted traffic.
+await context.addInitScript(() => {
+  const log = [];
+  Object.defineProperty(window, '__fv_net', { get: () => log, configurable: true });
+  const realFetch = window.fetch;
+  window.fetch = async function (...args) {
+    const url = String(args[0]?.url ?? args[0] ?? '');
+    const method = (args[1]?.method ?? args[0]?.method ?? 'GET').toUpperCase();
+    const start = performance.now();
+    try {
+      const res = await realFetch.apply(this, args);
+      log.push({ url, method, status: res.status, ok: res.ok, start, end: performance.now(), via: 'fetch' });
+      return res;
+    } catch (e) {
+      log.push({ url, method, status: 0, ok: false, error: String(e), start, end: performance.now(), via: 'fetch' });
+      throw e;
+    }
+  };
+  const RealXHR = window.XMLHttpRequest;
+  if (RealXHR) {
+    const open = RealXHR.prototype.open, send = RealXHR.prototype.send;
+    RealXHR.prototype.open = function (m, u, ...rest) { this.__fv = { url: String(u), method: String(m).toUpperCase() }; return open.call(this, m, u, ...rest); };
+    RealXHR.prototype.send = function (...a) {
+      const meta = this.__fv;
+      if (meta) {
+        meta.start = performance.now();
+        this.addEventListener('loadend', () => log.push({ ...meta, status: this.status, ok: this.status >= 200 && this.status < 400, end: performance.now(), via: 'xhr' }));
+      }
+      return send.apply(this, a);
+    };
+  }
+});
+
 const report = { base: BASE, width: WIDTH, started: new Date().toISOString(), routes: [], summary: {} };
 const sevOf = (f) => f.severity ?? 'P2';
 
@@ -91,6 +170,11 @@ for (const route of routes) {
   const page = await context.newPage();
   const findings = [];
   const requests = [];
+  // Keyed method+path+status, so the same failure seen at BOTH the network layer
+  // and in-page is reported once. Without this every network finding doubles on
+  // any app where both vantage points can see the traffic.
+  const reported = new Set();
+  const netKey = (method, pathname, status) => method + ' ' + pathname + ' ' + status;
   const push = (kind, severity, detail, at) => findings.push({ kind, severity, detail, at: at ?? '(page)' });
 
   page.on('console', (m) => {
@@ -119,8 +203,10 @@ for (const route of routes) {
     if (rec) rec.end = Date.now();
     const u = new URL(res.url());
     if (u.origin !== new URL(BASE).origin) return;
-    if (res.status() >= 400)
+    if (res.status() >= 400) {
+      reported.add(netKey(res.request().method(), u.pathname, res.status()));
       push('network.http-' + res.status(), res.status() >= 500 ? 'P0' : 'P1', res.request().method() + ' ' + u.pathname + ' -> ' + res.status());
+    }
   });
 
   let probe = { findings: [], metrics: {} };
@@ -140,6 +226,30 @@ for (const route of routes) {
   } catch (e) {
     push('route.unreachable', 'P0', String(e).split('\n')[0].slice(0, 200));
   }
+
+  // Merge what the page itself saw. On a service-worker app this is the ONLY
+  // source with anything in it; on a normal app it agrees with Playwright and
+  // the dedupe below keeps findings from doubling.
+  let inPage = [];
+  try { inPage = await page.evaluate(() => (window.__fv_net ?? []).map((r) => ({ ...r }))); } catch { /* page closed */ }
+  const seen = new Set(requests.map((r) => r.url));
+  for (const r of inPage) {
+    let abs = r.url, pathname = r.url;
+    try { const u = new URL(r.url, BASE); abs = u.href; pathname = u.pathname; } catch { /* keep raw */ }
+    const key = netKey(r.method, pathname, r.status);
+    if (!reported.has(key)) {
+      if (r.status >= 400) {
+        reported.add(key);
+        push('network.http-' + r.status, r.status >= 500 ? 'P0' : 'P1', r.method + ' ' + pathname + ' -> ' + r.status + ' (seen in-page)');
+      } else if (!r.ok && r.status === 0) {
+        reported.add(key);
+        push('network.requestfailed', 'P1', r.method + ' ' + pathname + ' -- ' + (r.error ?? 'failed') + ' (seen in-page)');
+      }
+    }
+    if (!seen.has(abs)) requests.push({ url: abs, type: 'fetch', start: r.start, end: r.end, inPageOnly: true });
+  }
+  if (!requests.some((r) => r.type === 'xhr' || r.type === 'fetch') && inPage.length === 0)
+    push('verify.no-data-traffic', 'P2', 'no data requests observed at either the network layer or in-page -- either this route needs none, or the sweep is measuring nothing');
 
   // Request waterfall: B starting right after A finished, repeatedly, is a
   // dependent chain. Every link is a full round trip added to time-to-data, and

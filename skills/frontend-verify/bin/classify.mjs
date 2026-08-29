@@ -14,10 +14,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve(process.argv[2]?.startsWith('--') ? '.' : (process.argv[2] ?? '.'));
 const JSON_OUT = process.argv.includes('--json');
-const SKIP = /(^|\/)(node_modules|\.next|\.git|dist|build|out|coverage|\.turbo|\.vercel|\.worktrees|\.venv|venv|site-packages|vendor|storybook-static|__tests__|__mocks__)(\/|$)|\.(test|spec|stories|d)\.[tj]sx?$/;
+const SKIP = /(^|\/)(node_modules|\.next|\.git|dist|build|out|coverage|\.turbo|\.vercel|venv|site-packages|vendor|storybook-static|__tests__|__mocks__)(\/|$)|(^|\/)\.[^/]+\/|worktrees\/|\.(test|spec|stories|d)\.[tj]sx?$/;
 
 function walk(dir, acc = []) {
   let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return acc; }
@@ -30,7 +31,21 @@ function walk(dir, acc = []) {
   return acc;
 }
 
-const FILES = walk(ROOT);
+
+// Enumerate through git when the root is a repo. This is the only enumeration
+// that respects .gitignore for free, and gitignored trees are where the noise
+// lives: agent worktrees under .claude/, prototype scratch dirs, vendored
+// builds. Each such tree is a near-copy of the app, so every finding in it is a
+// duplicate -- one real repo reported 357 findings of which 335 came from copies
+// of itself. A 94% noise rate is indistinguishable from a broken tool.
+function gitFiles(root) {
+  const r = spawnSync('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (r.status !== 0 || !r.stdout) return null;
+  return r.stdout.split('\0').filter(Boolean).map((f) => path.join(root, f));
+}
+
+const FILES = (gitFiles(ROOT) ?? walk(ROOT)).filter((f) => /\.[jt]sx?$/.test(f) && !SKIP.test(f));
 const rel = (f) => path.relative(ROOT, f);
 const lineAt = (src, i) => src.slice(0, i).split('\n').length;
 

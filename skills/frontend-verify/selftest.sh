@@ -70,6 +70,7 @@ have render.empty-list-no-state
 have layout.h-scroll
 have a11y.tap-target
 have a11y.unlabeled-control
+have network.http-404
 
 echo "--- must NOT fire"
 # The sr-only skip link is 1x1 BY DESIGN. Counting it is how an accessibility
@@ -78,6 +79,13 @@ echo "--- must NOT fire"
 # would be 2 -- which is how an accessibility ticket claims 103 failures.
 have_exact '1 interactive element(s) under 24px'
 absent '2 interactive element(s) under 24px'
+
+# The 404 must be reported ONCE. Twice means the in-page recorder and Playwright's
+# network layer are both firing without deduping -- which on a real app would
+# double every network finding.
+n404=$(grep -c '"kind": "network.http-404"' "$TMP/report.json")
+if [ "$n404" = "1" ]; then echo "  ok    404 reported exactly once (in-page + network deduped)"
+else echo "  FAIL  404 reported $n404 times, expected 1"; fail=1; fi
 
 # value.leak must report all four leaked shapes, not just the first.
 for s in NaN undefined "object Object" "Invalid Date"; do

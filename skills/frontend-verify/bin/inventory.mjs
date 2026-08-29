@@ -22,12 +22,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const ARGS = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const ROOT = path.resolve(ARGS[0] ?? '.');
 const TO_STDOUT = process.argv.includes('--stdout');
 const SRC_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs']);
-const SKIP_DIR = /(^|\/)(node_modules|\.next|\.git|dist|build|out|coverage|\.turbo|\.vercel|\.worktrees|\.venv|venv|site-packages|vendor|storybook-static)(\/|$)|\.(test|spec|stories)\.[tj]sx?$/;
+const SKIP_DIR = /(^|\/)(node_modules|\.next|\.git|dist|build|out|coverage|\.turbo|\.vercel|venv|site-packages|vendor|storybook-static)(\/|$)|(^|\/)\.[^/]+\/|worktrees\/|\.(test|spec|stories)\.[tj]sx?$/;
 const MAX_IMPORT_DEPTH = 12;
 
 /* ------------------------------------------------------------------ files */
@@ -44,7 +45,21 @@ function walk(dir, acc = []) {
   return acc;
 }
 
-const FILES = walk(ROOT);
+
+// Enumerate through git when the root is a repo. This is the only enumeration
+// that respects .gitignore for free, and gitignored trees are where the noise
+// lives: agent worktrees under .claude/, prototype scratch dirs, vendored
+// builds. Each such tree is a near-copy of the app, so every finding in it is a
+// duplicate -- one real repo reported 357 findings of which 335 came from copies
+// of itself. A 94% noise rate is indistinguishable from a broken tool.
+function gitFiles(root) {
+  const r = spawnSync('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (r.status !== 0 || !r.stdout) return null;
+  return r.stdout.split('\0').filter(Boolean).map((f) => path.join(root, f));
+}
+
+const FILES = (gitFiles(ROOT) ?? walk(ROOT)).filter((f) => SRC_EXT.has(path.extname(f)) && !SKIP_DIR.test(f));
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
 const SOURCE = new Map(FILES.map((f) => [f, read(f)]));
 const rel = (f) => path.relative(ROOT, f);
@@ -264,9 +279,98 @@ function enclosingName(src, idx) {
   return last ? (last[1] ?? last[2]) : null;
 }
 
-function extractQueries(file) {
+
+// Repos wrap the data layer: useApiQuery / useQueuedWrite / useResource rather
+// than bare useQuery / useMutation. Matching only the library names then reports
+// ZERO queries on a codebase with forty hooks -- and syncRisks, the headline
+// output, comes back empty because nothing was found to correlate, not because
+// the app is clean. Silently empty is the worst failure shape a tool has.
+function collectWrappers() {
+  const q = new Set(), m = new Set();
+  const DECL = /(?:export\s+)?(?:async\s+)?function\s+(use[A-Z]\w*)\s*[(<]|(?:export\s+)?const\s+(use[A-Z]\w*)\s*=/g;
+  for (const src of SOURCE.values()) {
+    for (const d of src.matchAll(DECL)) {
+      const name = d[1] ?? d[2];
+      if (!name) continue;
+      // Brace-match the actual body. A fixed character window spills into the
+      // NEXT declaration, so in a hooks file of many small hooks nearly every
+      // one gets marked a wrapper -- which inflated one repo from 320 mutations
+      // to 1620 and made syncRisks meaningless.
+      const brace = src.indexOf('{', d.index);
+      const body = brace < 0 ? '' : callBody(src, brace, 4000);
+      // A wrapper RETURNS the query/mutation. A hook that merely calls one
+      // somewhere in its body is a consumer, not a wrapper.
+      const retQ = /return\s+use(?:Suspense)?(?:Infinite)?Query\s*[(<]|=>\s*use(?:Suspense)?(?:Infinite)?Query\s*[(<]/.test(body);
+      const retM = /return\s+useMutation\s*[(<]|=>\s*useMutation\s*[(<]/.test(body);
+      if (!retQ && !retM) continue;
+      // Only GENERIC primitives get expanded at their call sites. useApiQuery(key, fn)
+      // passes a PARAMETER through as the key, so its call sites carry the entity and
+      // must be read. useCreateHouseholdMember() hardcodes its own key -- it was
+      // already counted at this definition, and counting its call sites too inflated
+      // one repo from 320 mutations to 991 and buried the real sync risks.
+      const params = (src.slice(d.index, brace < 0 ? d.index : brace).match(/\(([^)]*)\)/) ?? [])[1] ?? '';
+      const names = params.split(',').map((x) => x.trim().split(/[:=\s]/)[0]).filter((x) => /^[A-Za-z_$][\w$]*$/.test(x));
+      const passesThrough = names.some((n) => new RegExp('(queryKey|mutationKey|mutationFn|queryFn)\\s*:\\s*' + n + '\\b').test(body));
+      if (!passesThrough) continue;
+      if (retQ) q.add(name);
+      if (retM) m.add(name);
+    }
+  }
+  for (const n of m) q.delete(n);   // wraps both -> the write is what matters
+  return { queryWrappers: q, mutationWrappers: m };
+}
+const { queryWrappers, mutationWrappers } = collectWrappers();
+
+// A wrapper takes its key as the FIRST ARGUMENT, not a queryKey: field.
+function firstArg(callText) {
+  const inner = callText.slice(1, -1);
+  let depth = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    else if (c === ',' && depth === 0) return inner.slice(0, i);
+  }
+  return inner;
+}
+
+function extractWrapped(file, names, kind) {
+  if (!names.size) return [];
   const src = SOURCE.get(file) ?? '';
   const out = [];
+  const re = new RegExp('\\b(' + [...names].join('|') + ')\\s*(?:<[^>]*>)?\\s*\\(', 'g');
+  for (const m of src.matchAll(re)) {
+    // Skip the wrapper's OWN declaration -- `function useApiQuery(key, fn)`
+    // matches the call pattern, and counting it yields phantom queries whose
+    // key is the parameter list.
+    if (/\b(function|const|let|var)\s+$/.test(src.slice(Math.max(0, m.index - 24), m.index))) continue;
+    const body = callBody(src, m.index + m[0].length - 1);
+    const key = firstArg(body);
+    const fnRef = (body.match(/\b([a-z]\w*(?:Fetch|Get|Post|Put|Patch|Delete|Api|Query|Mutation)\w*)\s*[,)]/) ?? [])[1] ?? '';
+    const rec = {
+      entity: keyEntity(key), key: key.trim().slice(0, 120),
+      endpoint: endpointOf(body) ?? resolveFnEndpoint(fnRef),
+      file: rel(file), line: lineAt(src, m.index), via: m[1],
+    };
+    if (kind !== 'mutation') { out.push(rec); continue; }
+    const invalidates = [...body.matchAll(/invalidateQueries\s*\(\s*\{?\s*(?:queryKey:\s*)?([^\n,)]+)/g)].map((x) => keyEntity(x[1])).filter(Boolean);
+    const called = [...body.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((x) => x[1]);
+    const hook = enclosingName(src, m.index);
+    out.push({
+      ...rec, hook,
+      writes: invalidates[0] ?? (rec.endpoint ? resource(rec.endpoint) : null) ?? rec.entity,
+      verb: (body.match(/\.(get|post|put|patch|delete)\s*\(/) ?? [])[1] ?? null,
+      invalidates: [...new Set(invalidates)],
+      clearsCache: CACHE_OP.test(body) || called.some((n) => INVALIDATOR_NAMES.has(n)),
+      nonWrite: isNonWrite(rec.via, hook, rec.endpoint),
+    });
+  }
+  return out;
+}
+
+function extractQueries(file) {
+  const src = SOURCE.get(file) ?? '';
+  const out = [...extractWrapped(file, queryWrappers, 'query')];
   for (const m of src.matchAll(/\buse(?:Suspense)?(?:Infinite)?Query\s*(?:<[^>]*>)?\s*\(/g)) {
     const body = callBody(src, m.index + m[0].length - 1);
     const key = (body.match(/queryKey:\s*([^\n,]+)/) ?? [])[1];
@@ -320,7 +424,7 @@ const isNonWrite = (...parts) => parts.some((p) => words(p).some((w) => NON_WRIT
 
 function extractMutations(file) {
   const src = SOURCE.get(file) ?? '';
-  const out = [];
+  const out = [...extractWrapped(file, mutationWrappers, 'mutation')];
   for (const m of src.matchAll(/\buseMutation\s*(?:<[^>]*>)?\s*\(/g)) {
     const body = callBody(src, m.index + m[0].length - 1);
     const invalidates = [...body.matchAll(/invalidateQueries\s*\(\s*\{?\s*(?:queryKey:\s*)?([^\n,)]+)/g)].map((x) => keyEntity(x[1])).filter(Boolean);
