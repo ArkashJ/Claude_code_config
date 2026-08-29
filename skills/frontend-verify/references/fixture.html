@@ -29,8 +29,9 @@
   <button class="tiny" aria-label="tiny">x</button>
   <a class="sr-only" href="#main">Skip to content</a>
 
-  <!-- a11y.unlabeled-control -->
-  <button id="nameless"></button>
+  <!-- a11y.unlabeled-control: sized well above 24px so it is NOT also a
+       tap-target finding, keeping that assertion unambiguous -->
+  <button id="nameless" style="width:44px;height:44px"></button>
 </main>
 <script>
   // perf.layout-thrash: interleave a DOM write and a geometry read in one frame.

@@ -24,7 +24,10 @@ for _ in $(seq 1 40); do
   perl -e 'select undef,undef,undef,0.25'
 done
 
-node "$SKILL/bin/sweep.mjs" --base "http://127.0.0.1:$PORT" --routes / --json "$TMP/report.json" >"$TMP/out.txt" 2>&1
+# PLAYWRIGHT_HOME lets the selftest borrow an install from any repo, since the
+# skill itself carries no node_modules by design.
+node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
+  --routes / --json "$TMP/report.json" >"$TMP/out.txt" 2>&1
 echo "--- sweep output"; cat "$TMP/out.txt"
 
 if grep -q "Playwright not found" "$TMP/out.txt"; then
@@ -48,6 +51,10 @@ have() {
     echo "  MISS  $1  <- planted in the fixture, probe did not fire"; fail=1
   fi
 }
+have_exact() {
+  if grep -q "$1" "$TMP/report.json"; then echo "  ok    exact: $1"
+  else echo "  MISS  expected exactly: $1"; fail=1; fi
+}
 absent() {
   if grep -q "$1" "$TMP/report.json"; then
     echo "  FALSE-POSITIVE  $1"; fail=1
@@ -67,7 +74,10 @@ have a11y.unlabeled-control
 echo "--- must NOT fire"
 # The sr-only skip link is 1x1 BY DESIGN. Counting it is how an accessibility
 # ticket claims 103 failures and a browser finds one.
-absent '"detail": "2 interactive element'
+# Exactly ONE small target (.tiny). If the sr-only skip link were counted it
+# would be 2 -- which is how an accessibility ticket claims 103 failures.
+have_exact '1 interactive element(s) under 24px'
+absent '2 interactive element(s) under 24px'
 
 # value.leak must report all four leaked shapes, not just the first.
 for s in NaN undefined "object Object" "Invalid Date"; do

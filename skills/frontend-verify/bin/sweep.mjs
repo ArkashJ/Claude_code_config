@@ -35,18 +35,23 @@ const PROBE = path.join(path.dirname(new URL(import.meta.url).pathname), 'probe.
 
 /* ------------------------------------------------------------- playwright */
 
+// Both packages are CJS, so the browser launchers arrive under `.default`
+// depending on the interop path. Unwrap before use -- reading `.chromium` off the
+// raw namespace gives `undefined` and fails at launch() with nothing to explain it.
+const unwrap = (mod) => (mod?.chromium ? mod : mod?.default?.chromium ? mod.default : null);
+
 async function loadPlaywright() {
-  for (const from of [path.resolve(arg('repo', '.')), process.cwd()]) {
-    try {
-      const req = createRequire(path.join(from, 'package.json'));
-      return await import(pathToFileURL(req.resolve('playwright')).href);
-    } catch { /* try the next root */ }
-    try {
-      const req = createRequire(path.join(from, 'package.json'));
-      return await import(pathToFileURL(req.resolve('@playwright/test')).href);
-    } catch { /* try the next root */ }
+  const roots = [path.resolve(arg('repo', '.')), process.cwd(), path.resolve(process.env.PLAYWRIGHT_HOME ?? '.')];
+  for (const from of roots) {
+    for (const pkg of ['playwright', '@playwright/test']) {
+      try {
+        const req = createRequire(path.join(from, 'package.json'));
+        const got = unwrap(await import(pathToFileURL(req.resolve(pkg)).href));
+        if (got) return got;
+      } catch { /* try the next package / root */ }
+    }
   }
-  try { return await import('playwright'); } catch { /* fall through */ }
+  try { const got = unwrap(await import('playwright')); if (got) return got; } catch { /* fall through */ }
   console.error('Playwright not found. Install it in the repo under test:\n  npm i -D @playwright/test && npx playwright install chromium');
   process.exit(2);
 }

@@ -72,7 +72,7 @@ TS
 
 fail=0
 INV="$TMP/inventory.json"
-node "$SKILL/bin/inventory.mjs" "$TMP" > "$INV" || { echo "FAIL: inventory.mjs crashed"; exit 1; }
+node "$SKILL/bin/inventory.mjs" "$TMP" --stdout > "$INV" || { echo "FAIL: inventory.mjs crashed"; exit 1; }
 node "$SKILL/bin/classify.mjs" "$TMP" --json > "$TMP/classify.json" || true
 
 echo "--- inventory"

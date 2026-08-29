@@ -68,7 +68,12 @@ async page => {
       add('render.stuck-loading', 'P1', spinners.length + ' loading indicator(s) still visible after settle', sel(spinners[0]));
 
     // An empty list with no empty state is indistinguishable from a failed fetch.
-    const lists = [...document.querySelectorAll('ul,ol,tbody,[role="list"],[role="table"],[role="grid"]')].filter(vis);
+    // NOT filtered by vis(): an empty list is zero-height by definition, so a
+    // visibility filter excludes precisely the case this rule exists to catch.
+    // Layout participation (offsetParent, or a fixed/sticky ancestor) is the
+    // right test -- it excludes display:none subtrees and keeps empty lists.
+    const inLayout = el => el.offsetParent !== null || getComputedStyle(el).position === 'fixed';
+    const lists = [...document.querySelectorAll('ul,ol,tbody,[role="list"],[role="table"],[role="grid"]')].filter(inLayout);
     for (const l of lists) {
       const rows = [...l.children].filter(vis);
       if (rows.length) continue;
