@@ -92,6 +92,33 @@ for s in NaN undefined "object Object" "Invalid Date"; do
   grep -q "$s" "$TMP/report.json" && echo "  ok    leak reported: $s" || { echo "  MISS  leak not reported: $s"; fail=1; }
 done
 
+# ---------------------------------------------------------------------------
+# DIFFERENTIAL CHECK. Two deliberately different pages must produce DIFFERENT
+# findings. Byte-identical output across distinct inputs is the signature of an
+# experiment that never ran -- a sweep that intercepts at the wrong layer, or
+# that captures before render, reports the same clean result for every input and
+# looks like a pass. Only a differential assertion catches that.
+mkdir -p "$TMP/clean"
+cat > "$TMP/clean/index.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>clean</title>
+<main><h1>Clean</h1><p>Everything is fine here.</p>
+<ul><li>one</li><li>two</li></ul>
+<button style="width:44px;height:44px" aria-label="ok">OK</button></main>
+HTML
+node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
+  --routes /clean/ --json "$TMP/clean.json" >/dev/null 2>&1
+
+echo "--- differential (distinct inputs must give distinct output)"
+node -e '
+const a = require(process.argv[1]), b = require(process.argv[2]);
+const kinds = (r) => [...new Set(r.routes.flatMap((x) => x.findings.map((f) => f.kind)))].sort().join(",");
+const ka = kinds(a), kb = kinds(b);
+if (ka === kb) { console.log("  FAIL  identical findings for the buggy and clean pages -- the sweep measured nothing"); process.exit(1); }
+if (!ka.includes("value.leak")) { console.log("  FAIL  buggy page lost its findings"); process.exit(1); }
+if (kb.includes("value.leak")) { console.log("  FAIL  clean page reported a leak: " + kb); process.exit(1); }
+console.log("  ok    buggy: " + (ka.split(",").length) + " kinds, clean: " + (kb ? kb.split(",").length : 0) + " kinds, and they differ");
+' "$TMP/report.json" "$TMP/clean.json" || fail=1
+
 echo
 if [ "$fail" -eq 0 ]; then echo "SELFTEST PASS"; else echo "SELFTEST FAIL"; fi
 exit "$fail"

@@ -132,6 +132,58 @@ for rule in missing-empty-state index-as-list-key runtime-env-in-client-code ser
   else echo "  MISS  $rule  <- planted, rule did not fire"; fail=1; fi
 done
 
+# ---------------------------------------------------------------------------
+# MONOREPO regression. Reproduces the exact shape that reported modules:1 and
+# zero queries on a real app: no tsconfig at the repo root, paths declared in
+# apps/web/tsconfig.json, the route three hops from its data, and the wrapper
+# typed with NESTED generics between the identifier and the paren.
+MONO="$(mktemp -d)"
+trap 'rm -rf "$TMP" "$MONO"' EXIT
+mkdir -p "$MONO/apps/web/src/app/(app)/accounts" "$MONO/apps/web/src/components/accounts" "$MONO/apps/web/src/hooks" "$MONO/apps/web/src/lib"
+cat > "$MONO/package.json" <<'JSON'
+{ "name": "mono-root", "private": true, "workspaces": ["apps/*"] }
+JSON
+cat > "$MONO/apps/web/tsconfig.json" <<'JSON'
+{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }
+JSON
+cat > "$MONO/apps/web/src/lib/api-hooks.ts" <<'TS'
+import { useQuery } from '@tanstack/react-query'
+type GetResponse<P> = { data: P }
+export function useApiQuery<Path, Data>(key: unknown[], fn: () => Promise<Data>) {
+  return useQuery<GetResponse<Path>, Error, Data, unknown[]>({ queryKey: key, queryFn: fn })
+}
+TS
+cat > "$MONO/apps/web/src/hooks/use-accounts.ts" <<'TS'
+import axios from 'axios'
+import { useApiQuery } from '@/lib/api-hooks'
+export const listAccounts = async () => axios.get('/v1/accounts')
+export function useAccounts() { return useApiQuery(['accounts'], listAccounts) }
+TS
+cat > "$MONO/apps/web/src/components/accounts/accounts-route.tsx" <<'TSX'
+import { useAccounts } from '@/hooks/use-accounts'
+export function AccountsRoute() { const { data } = useAccounts(); return <div>{String(data)}</div> }
+TSX
+cat > "$MONO/apps/web/src/app/(app)/accounts/page.tsx" <<'TSX'
+'use client'
+import { AccountsRoute } from '@/components/accounts/accounts-route'
+export default function Page() { return <AccountsRoute /> }
+TSX
+
+echo "--- monorepo traversal"
+node "$SKILL/bin/inventory.mjs" "$MONO" --stdout > "$MONO/inv.json" || { echo "  FAIL: crashed"; fail=1; }
+node -e '
+const j = require(process.argv[1]); let bad = 0;
+const check = (l, ok, got) => { console.log((ok ? "  ok    " : "  MISS  ") + l + "  (" + got + ")"); if (!ok) bad = 1; };
+const r = j.routes.find((x) => x.path === "/accounts");
+check("route found under apps/web",  !!r,                 j.routes.map((x) => x.path).join(",") || "none");
+check("import walk left the page",   (r?.modules ?? 0) > 1, r?.modules ?? 0);
+check("query found 3 hops out",      (r?.queries.length ?? 0) >= 1, r?.queries.length ?? 0);
+check("generic wrapper matched",     r?.queries.some((q) => q.via === "useApiQuery"), (r?.queries ?? []).map((q) => q.via ?? "bare").join(","));
+check("entity resolved",             r?.entities.includes("accounts"), (r?.entities ?? []).join(",") || "none");
+check("endpoint resolved",           r?.queries.some((q) => q.endpoint === "/v1/accounts"), (r?.queries ?? []).map((q) => q.endpoint).join(","));
+process.exit(bad);
+' "$MONO/inv.json" || fail=1
+
 echo
 if [ "$fail" -eq 0 ]; then echo "STATIC SELFTEST PASS"; else echo "STATIC SELFTEST FAIL"; fi
 exit "$fail"

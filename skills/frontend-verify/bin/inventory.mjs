@@ -126,6 +126,10 @@ function fileRouterRoutes() {
 }
 
 const routes = [...nextAppRoutes(), ...nextPagesRoutes(), ...configRoutes(), ...fileRouterRoutes()]
+  // A path with a file extension is a source filename that leaked into the route
+  // list; sweeping it makes the tool request a URL that cannot exist and then
+  // report its own 404 as a finding.
+  .filter((r) => !/\.[a-z]{2,4}$/i.test(r.path))
   .filter((r, i, a) => a.findIndex((x) => x.path === r.path) === i)
   .sort((a, b) => a.path.localeCompare(b.path));
 
@@ -138,7 +142,7 @@ function resolveImport(fromFile, spec, aliases) {
   const bases = [];
   if (spec.startsWith('.')) bases.push(path.resolve(path.dirname(fromFile), spec));
   else for (const [pre, target] of aliases) {
-    if (spec === pre || spec.startsWith(pre + '/')) bases.push(path.resolve(ROOT, target, spec.slice(pre.length + 1)));
+    if (spec === pre || spec.startsWith(pre + '/')) bases.push(path.resolve(target, spec.slice(pre.length + 1)));
   }
   for (const base of bases) {
     const cands = [base, ...['.ts', '.tsx', '.js', '.jsx'].flatMap((e) => [base + e, path.join(base, 'index' + e)])];
@@ -158,10 +162,16 @@ function parseJsonc(text) {
   try { return JSON.parse(text.replace(/^\s*\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '$1')); } catch { return null; }
 }
 
-function readAliases() {
-  const out = [];
+// Alias scopes, one per tsconfig in the tree, NOT just the repo root. In a
+// monorepo the paths map lives in apps/web/tsconfig.json ("@/*": ["./src/*"])
+// and the root has no tsconfig at all -- so a root-only reader resolves nothing,
+// every import fails silently, and the walk stops at the entry file with
+// modules:1. That looks like an app with no data rather than a broken traversal,
+// which is the failure shape worth the most care to avoid.
+function readAliasScopes() {
+  const scopes = [];
   const seen = new Set();
-  const load = (p, depth = 0) => {
+  const load = (p, into, depth = 0) => {
     if (depth > 4 || seen.has(p) || !fs.existsSync(p)) return;
     seen.add(p);
     const json = parseJsonc(read(p));
@@ -171,15 +181,35 @@ function readAliases() {
     for (const [k, v] of Object.entries(json?.compilerOptions?.paths ?? {})) {
       const pre = k.replace(/\/\*$/, '');
       const target = String(v?.[0] ?? '').replace(/\/\*$/, '');
-      if (pre && target) out.push([pre, path.relative(ROOT, path.resolve(baseDir, baseUrl, target)) || '.']);
+      if (pre && target) into.push([pre, path.resolve(baseDir, baseUrl, target)]);
     }
-    if (typeof json.extends === 'string' && json.extends.startsWith('.')) load(path.resolve(baseDir, json.extends), depth + 1);
+    if (typeof json.extends === 'string' && json.extends.startsWith('.')) load(path.resolve(baseDir, json.extends), into, depth + 1);
   };
-  for (const name of ['tsconfig.json', 'jsconfig.json']) load(path.join(ROOT, name));
-  if (!out.length) out.push(['@', '.'], ['@', 'src'], ['~', 'src'], ['src', 'src']);
-  return out;
+
+  const configs = new Set([path.join(ROOT, 'tsconfig.json'), path.join(ROOT, 'jsconfig.json')]);
+  for (const f of FILES) {                       // every package dir that ships source
+    for (let d = path.dirname(f); d.startsWith(ROOT) && d !== ROOT; d = path.dirname(d))
+      for (const n of ['tsconfig.json', 'jsconfig.json'])
+        if (fs.existsSync(path.join(d, n))) configs.add(path.join(d, n));
+  }
+  for (const cfg of configs) {
+    const entries = [];
+    load(cfg, entries);
+    if (entries.length) scopes.push({ dir: path.dirname(cfg), entries });
+  }
+  // Longest dir first, so the nearest tsconfig to a file wins.
+  scopes.sort((a, b) => b.dir.length - a.dir.length);
+  if (!scopes.length) scopes.push({ dir: ROOT, entries: [['@', ROOT], ['@', path.join(ROOT, 'src')], ['~', path.join(ROOT, 'src')]] });
+  return scopes;
 }
-const ALIASES = readAliases();
+const ALIAS_SCOPES = readAliasScopes();
+
+// The alias map governing a given file: nearest enclosing tsconfig, then any
+// other scope as a fallback (a shared package imported across workspaces).
+function aliasesFor(file) {
+  const own = ALIAS_SCOPES.filter((s) => file.startsWith(s.dir + path.sep) || file === s.dir);
+  return [...own, ...ALIAS_SCOPES.filter((s) => !own.includes(s))].flatMap((s) => s.entries);
+}
 
 function importsOf(file) {
   const src = SOURCE.get(file) ?? '';
@@ -188,7 +218,8 @@ function importsOf(file) {
     ...src.matchAll(/import\(\s*["'`]([^"'`]+)["'`]\s*\)/g),
     ...src.matchAll(/(?:^|\n)\s*export\s+[\s\S]*?\s+from\s+["'`]([^"'`]+)["'`]/g),
   ].map((m) => m[1]);
-  return [...new Set(specs)].map((s) => resolveImport(file, s, ALIASES)).filter(Boolean);
+  const aliases = aliasesFor(file);
+  return [...new Set(specs)].map((s) => resolveImport(file, s, aliases)).filter(Boolean);
 }
 
 function reachable(entry) {
@@ -270,6 +301,25 @@ function callBody(src, openParenIdx, cap = 6000) {
 
 const lineAt = (src, idx) => src.slice(0, idx).split('\n').length;
 
+// The '(' of a call, skipping a generic argument list. `useQuery<A<B>, C>({...})`
+// is routine in typed data layers, and `<[^>]*>` stops at the FIRST '>' -- so a
+// naive matcher silently misses every generically-typed call while matching the
+// untyped ones beside it. Returns -1 when what follows is not a call.
+function callParen(src, after) {
+  let i = after;
+  while (i < src.length && /\s/.test(src[i])) i++;
+  if (src[i] === '<') {
+    let depth = 0;
+    for (; i < src.length && i < after + 400; i++) {
+      if (src[i] === '<') depth++;
+      else if (src[i] === '>') { depth--; if (depth === 0) { i++; break; } }
+      else if (src[i] === ';' || src[i] === '{') return -1;   // not a generic list
+    }
+    while (i < src.length && /\s/.test(src[i])) i++;
+  }
+  return src[i] === '(' ? i : -1;
+}
+
 // The hook or function a call sits inside. "useDeleteContact" is a finding a
 // human can act on; "hook.ts:61" is a coordinate they have to go look up.
 function enclosingName(src, idx) {
@@ -321,32 +371,43 @@ function collectWrappers() {
 }
 const { queryWrappers, mutationWrappers } = collectWrappers();
 
-// A wrapper takes its key as the FIRST ARGUMENT, not a queryKey: field.
-function firstArg(callText) {
+// A wrapper takes its key as the FIRST ARGUMENT, not a queryKey: field, and its
+// fetcher as the second. Split on top-level commas.
+function splitArgs(callText) {
   const inner = callText.slice(1, -1);
-  let depth = 0;
+  const out = [];
+  let depth = 0, start = 0;
   for (let i = 0; i < inner.length; i++) {
     const c = inner[i];
     if ('([{'.includes(c)) depth++;
     else if (')]}'.includes(c)) depth--;
-    else if (c === ',' && depth === 0) return inner.slice(0, i);
+    else if (c === ',' && depth === 0) { out.push(inner.slice(start, i)); start = i + 1; }
   }
-  return inner;
+  out.push(inner.slice(start));
+  return out.map((x) => x.trim());
 }
+const firstArg = (t) => splitArgs(t)[0] ?? '';
 
 function extractWrapped(file, names, kind) {
   if (!names.size) return [];
   const src = SOURCE.get(file) ?? '';
   const out = [];
-  const re = new RegExp('\\b(' + [...names].join('|') + ')\\s*(?:<[^>]*>)?\\s*\\(', 'g');
+  const re = new RegExp('\\b(' + [...names].join('|') + ')\\b', 'g');
   for (const m of src.matchAll(re)) {
+    const open = callParen(src, m.index + m[0].length);
+    if (open < 0) continue;
     // Skip the wrapper's OWN declaration -- `function useApiQuery(key, fn)`
     // matches the call pattern, and counting it yields phantom queries whose
     // key is the parameter list.
     if (/\b(function|const|let|var)\s+$/.test(src.slice(Math.max(0, m.index - 24), m.index))) continue;
-    const body = callBody(src, m.index + m[0].length - 1);
+    const body = callBody(src, open);
     const key = firstArg(body);
-    const fnRef = (body.match(/\b([a-z]\w*(?:Fetch|Get|Post|Put|Patch|Delete|Api|Query|Mutation)\w*)\s*[,)]/) ?? [])[1] ?? '';
+    // The fetcher is the SECOND argument, positionally. Matching it by name
+    // pattern (…Fetch/…Get/…Api) misses the ordinary spellings — listAccounts,
+    // createInvoice — which is most of them, leaving the endpoint unresolved and
+    // the blast radius undetermined.
+    const args = splitArgs(body);
+    const fnRef = (args[1] ?? '').match(/^([A-Za-z_$][\w$]*)$/)?.[1] ?? '';
     const rec = {
       entity: keyEntity(key), key: key.trim().slice(0, 120),
       endpoint: endpointOf(body) ?? resolveFnEndpoint(fnRef),
@@ -371,8 +432,10 @@ function extractWrapped(file, names, kind) {
 function extractQueries(file) {
   const src = SOURCE.get(file) ?? '';
   const out = [...extractWrapped(file, queryWrappers, 'query')];
-  for (const m of src.matchAll(/\buse(?:Suspense)?(?:Infinite)?Query\s*(?:<[^>]*>)?\s*\(/g)) {
-    const body = callBody(src, m.index + m[0].length - 1);
+  for (const m of src.matchAll(/\buse(?:Suspense)?(?:Infinite)?Query\b/g)) {
+    const open = callParen(src, m.index + m[0].length);
+    if (open < 0) continue;
+    const body = callBody(src, open);
     const key = (body.match(/queryKey:\s*([^\n,]+)/) ?? [])[1];
     if (!key) continue;
     const qFn = (body.match(/queryFn:\s*([A-Za-z_$][\w$]*)/) ?? [])[1] ?? '';
@@ -425,8 +488,10 @@ const isNonWrite = (...parts) => parts.some((p) => words(p).some((w) => NON_WRIT
 function extractMutations(file) {
   const src = SOURCE.get(file) ?? '';
   const out = [...extractWrapped(file, mutationWrappers, 'mutation')];
-  for (const m of src.matchAll(/\buseMutation\s*(?:<[^>]*>)?\s*\(/g)) {
-    const body = callBody(src, m.index + m[0].length - 1);
+  for (const m of src.matchAll(/\buseMutation\b/g)) {
+    const open = callParen(src, m.index + m[0].length);
+    if (open < 0) continue;
+    const body = callBody(src, open);
     const invalidates = [...body.matchAll(/invalidateQueries\s*\(\s*\{?\s*(?:queryKey:\s*)?([^\n,)]+)/g)].map((x) => keyEntity(x[1])).filter(Boolean);
     const setQuery = [...body.matchAll(/set(?:Query|Queries)Data\s*\(\s*([^\n,]+)/g)].map((x) => keyEntity(x[1])).filter(Boolean);
     const fnName = (body.match(/mutationFn:\s*([A-Za-z_$][\w$]*)/) ?? [])[1] ?? '';

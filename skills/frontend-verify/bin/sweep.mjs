@@ -166,6 +166,12 @@ await context.addInitScript(() => {
 const report = { base: BASE, width: WIDTH, started: new Date().toISOString(), routes: [], summary: {} };
 const sevOf = (f) => f.severity ?? 'P2';
 
+// Destinations already probed. An unauthenticated sweep of a gated app redirects
+// every route to /login, and probing each one attributes the login page's contents
+// to 50 routes it never reached -- 45 copies of one finding, reading as app-wide.
+// Worse, it reports coverage of routes nobody saw. Measure each destination once.
+const measured = new Set();
+
 for (const route of routes) {
   const page = await context.newPage();
   const findings = [];
@@ -210,6 +216,7 @@ for (const route of routes) {
   });
 
   let probe = { findings: [], metrics: {} };
+  let redirectedTo = null;
   try {
     const resp = await page.goto(BASE + route, { waitUntil: 'domcontentloaded', timeout: 30000 });
     if (resp && resp.status() >= 400) push('route.status-' + resp.status(), 'P0', 'route returned HTTP ' + resp.status());
@@ -222,7 +229,23 @@ for (const route of routes) {
       { timeout: 8000 },
     ).catch(() => {});
     await page.waitForTimeout(SETTLE_MS);
-    probe = await probeFn(page);
+
+    // Where did we actually land?
+    let landedPath = route;
+    try { landedPath = new URL(page.url()).pathname.replace(/\/$/, '') || '/'; } catch { /* keep */ }
+    const wanted = route.replace(/\/$/, '') || '/';
+    if (landedPath !== wanted) {
+      push('route.not-reached', 'P1', 'requested ' + wanted + ' but landed on ' + landedPath
+        + (/\b(login|signin|sign-in|auth)\b/.test(landedPath) ? ' -- the sweep is unauthenticated; pass --auth <storageState.json> to cover this route' : ''));
+      redirectedTo = landedPath;
+    }
+    // Probe a destination once. Everything found on /login belongs to /login.
+    if (!measured.has(landedPath)) {
+      measured.add(landedPath);
+      probe = await probeFn(page);
+    } else {
+      probe = { findings: [], metrics: {}, skipped: 'destination already measured: ' + landedPath };
+    }
   } catch (e) {
     push('route.unreachable', 'P0', String(e).split('\n')[0].slice(0, 200));
   }
@@ -264,8 +287,8 @@ for (const route of routes) {
   if (worst >= 3) push('network.waterfall', 'P2', worst + ' data requests fired in a dependent chain -- each one is a round trip before the page is complete');
 
   report.routes.push({
-    route, findings: [...findings, ...(probe.findings ?? [])], metrics: probe.metrics ?? {},
-    apiRequests: api.length,
+    route, redirectedTo, findings: [...findings, ...(probe.findings ?? [])], metrics: probe.metrics ?? {},
+    apiRequests: api.length, ...(probe.skipped ? { skipped: probe.skipped } : {}),
   });
   await page.close();
 }
@@ -314,7 +337,12 @@ report.finished = new Date().toISOString();
 fs.mkdirSync(path.dirname(JSON_OUT), { recursive: true });
 fs.writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));
 
+const reached = report.routes.filter((r) => !r.redirectedTo).length;
+report.summary.routesRequested = report.routes.length;
+report.summary.routesReached = reached;
 console.log('\n  ' + BASE + '  ' + report.routes.length + ' routes at ' + WIDTH + 'px');
+if (reached < report.routes.length)
+  console.log('  REACHED ' + reached + '/' + report.routes.length + ' -- the rest redirected (auth?); they were NOT measured');
 console.log('  ' + all.length + ' findings  ' + Object.entries(bySev).map(([k, v]) => k + ':' + v).join('  ') + '\n');
 for (const [kind, n] of Object.entries(byKind).sort((a, b) => b[1] - a[1])) {
   const first = all.find((f) => f.kind === kind);
