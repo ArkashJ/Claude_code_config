@@ -270,7 +270,9 @@ The agent cannot end a turn claiming done while that exits non-zero.
 
 ## The fix loop, and its ratchet
 
-Hours-long autonomous runs are an agent driving this tool, not a feature of it:
+Hours-long autonomous runs are an agent driving this tool, not a feature of it
+— the full runbook (feature ledger, journey authoring, pacing, fan-out, exit
+report) is the `frontend-qa-marathon` skill. The inner loop it enforces:
 
 ```
 run verify.sh --ratchet →  exit 0? done.
