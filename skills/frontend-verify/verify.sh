@@ -18,12 +18,14 @@
 set -uo pipefail
 
 SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO=""; BASE=""; AUTH=""; WIDTH=""; QUIET=0; MUTATE=0; RATCHET=0
+REPO=""; BASE=""; AUTH=""; WIDTH=""; QUIET=0; MUTATE=0; RATCHET=0; LOGIN=""; PARALLEL=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --base)  BASE="${2:-}"; shift 2 ;;
     --auth)  AUTH="${2:-}"; shift 2 ;;
     --width) WIDTH="${2:-}"; shift 2 ;;
+    --login) LOGIN="${2:-}"; shift 2 ;;          # user:pass -> auto-login, state saved to .verify/auth.json
+    --parallel) PARALLEL="${2:-}"; shift 2 ;;
     --quiet) QUIET=1; shift ;;
     --mutate) MUTATE=1; shift ;;
     --ratchet) RATCHET=1; shift ;;
@@ -78,6 +80,8 @@ if [ -n "$BASE" ]; then
   args=( --repo "$REPO" --base "$BASE" )
   [ -n "$AUTH" ]  && args+=( --auth "$AUTH" )
   [ -n "$WIDTH" ] && args+=( --width "$WIDTH" )
+  [ -n "$PARALLEL" ] && args+=( --parallel "$PARALLEL" )
+  [ -n "$LOGIN" ] && args+=( --login-user "${LOGIN%%:*}" --login-pass "${LOGIN#*:}" )
   [ "$MUTATE" -eq 1 ] && args+=( --mutate )
   node "$SKILL/bin/sweep.mjs" "${args[@]}" >"$OUT/sweep.log" 2>&1
   sw=$?

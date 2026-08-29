@@ -38,7 +38,9 @@ const HEIGHT = Number(arg('height', '900'));
 const SETTLE_MS = Number(arg('settle', '1200'));
 const REPO = path.resolve(arg('repo', '.'));
 const INVENTORY = arg('inventory', path.join(REPO, '.verify', 'inventory.json'));
-const AUTH = arg('auth');
+// Auth state defaults to living beside the other per-repo reports, so a state
+// captured once (by hand or by auto-login below) is reused on every later run.
+const AUTH = arg('auth', path.join(REPO, '.verify', 'auth.json'));
 const JSON_OUT = arg('json', path.join(REPO, '.verify', 'sweep.json'));
 const PROBE = path.join(path.dirname(new URL(import.meta.url).pathname), 'probe.js');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -253,6 +255,53 @@ await context.addInitScript(() => {
   requestAnimationFrame(frame);
 });
 
+/* -------------------------------------------------------------- auto-login */
+
+// A gated app without auth state sweeps 6 of 49 routes and honestly reports
+// the rest unmeasured -- honest, but useless. Given credentials (flags or
+// FV_LOGIN_USER / FV_LOGIN_PASS), log in through the app's real form once and
+// persist the storage state beside the other reports. Delete the state file
+// when it goes stale. Failure here is loud and non-fatal: the sweep proceeds
+// unauthenticated and every unreached route says so.
+async function autoLogin(user, pass) {
+  const page = await context.newPage();
+  try {
+    const loginPath = arg('login-path', '/login');
+    await page.goto(BASE + loginPath, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    let pw = await page.$('input[type="password"]');
+    if (!pw) {
+      // The app may put login elsewhere; follow its own redirect from /.
+      await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(1500);
+      pw = await page.$('input[type="password"]');
+    }
+    if (!pw) { console.error('sweep: auto-login found no password field at ' + loginPath + ' or / -- pass --login-path, or capture state by hand'); return false; }
+    const id = await page.$('input[type="email"], input[autocomplete="username"], form input[type="text"]');
+    if (id) await id.fill(user);
+    await pw.fill(pass);
+    const before = await page.evaluate(() => location.pathname).catch(() => '/login');
+    await page.evaluate(() => {
+      const f = document.querySelector('input[type="password"]')?.closest('form');
+      if (f) (f.requestSubmit ? f.requestSubmit() : f.submit());
+    }).catch(() => {});
+    for (let t = 0; t < 30; t++) {
+      await page.waitForTimeout(500);
+      const now = await page.evaluate(() => location.pathname).catch(() => before);
+      if (now !== before) break;
+    }
+    const landed = await page.evaluate(() => location.pathname).catch(() => before);
+    if (landed === before) { console.error('sweep: auto-login submitted but never left ' + before + ' -- wrong credentials or an unusual form'); return false; }
+    fs.mkdirSync(path.dirname(AUTH), { recursive: true });
+    await context.storageState({ path: AUTH });
+    console.error('  auto-login ok, state saved -> ' + AUTH);
+    return true;
+  } finally { await page.close(); }
+}
+
+const LOGIN_USER = arg('login-user') ?? process.env.FV_LOGIN_USER;
+const LOGIN_PASS = arg('login-pass') ?? process.env.FV_LOGIN_PASS;
+if (LOGIN_USER && LOGIN_PASS && !fs.existsSync(AUTH)) await autoLogin(LOGIN_USER, LOGIN_PASS);
+
 const report = { base: BASE, width: WIDTH, started: new Date().toISOString(), routes: [], summary: {} };
 const sevOf = (f) => f.severity ?? 'P2';
 
@@ -451,35 +500,49 @@ async function sweepRoute(route) {
   };
 }
 
-let i = 0;
-for (const route of routes) {
-  i++;
-  // Liveness first: when the dev server has died, every remaining route would
-  // report route.unreachable -- 40 copies of one infrastructure failure dressed
-  // up as app defects. One retry covers a restart-in-progress.
-  if (!(await serverAlive())) {
-    await wait(2000);
+// --parallel N sweeps N routes at once in one browser. Big time win on big
+// apps; CPU contention can inflate the perf metrics (long tasks, CLS), so
+// confirm any perf finding from a parallel run with a serial pass before
+// filing it as truth.
+const PARALLEL = Math.max(1, Math.min(8, Number(arg('parallel', '1')) || 1));
+const records = new Array(routes.length);
+let nextIdx = 0;
+async function sweepWorker() {
+  for (;;) {
+    const idx = nextIdx++;
+    if (idx >= routes.length) return;
+    const route = routes[idx];
+    // Liveness first: when the dev server has died, every remaining route would
+    // report route.unreachable -- 40 copies of one infrastructure failure dressed
+    // up as app defects. One retry covers a restart-in-progress.
     if (!(await serverAlive())) {
-      report.aborted = 'server unreachable at route ' + i + '/' + routes.length + ' (' + route + ') -- partial results kept';
-      writeReport();
-      console.error('sweep: ' + report.aborted);
-      process.exit(2);
+      await wait(2000);
+      if (!(await serverAlive())) {
+        report.aborted = 'server unreachable at route ' + (idx + 1) + '/' + routes.length + ' (' + route + ') -- partial results kept';
+        report.routes = records.filter(Boolean);
+        writeReport();
+        console.error('sweep: ' + report.aborted);
+        process.exit(2);
+      }
     }
-  }
-  let { record, unreachable } = await sweepRoute(route);
-  // One retry for a route that timed out or dropped: a transient hiccup that
-  // passes on retry is FLAKY, which is a fact worth keeping, not a pass.
-  if (unreachable) {
-    const again = await sweepRoute(route);
-    if (!again.unreachable) {
-      record = again.record;
-      record.flaky = true;
-      record.findings.push({ kind: 'route.flaky', severity: 'P2', at: '(page)', detail: 'first visit failed, retry succeeded -- intermittent' });
+    let { record, unreachable } = await sweepRoute(route);
+    // One retry for a route that timed out or dropped: a transient hiccup that
+    // passes on retry is FLAKY, which is a fact worth keeping, not a pass.
+    if (unreachable) {
+      const again = await sweepRoute(route);
+      if (!again.unreachable) {
+        record = again.record;
+        record.flaky = true;
+        record.findings.push({ kind: 'route.flaky', severity: 'P2', at: '(page)', detail: 'first visit failed, retry succeeded -- intermittent' });
+      }
     }
+    records[idx] = record;
+    report.routes = records.filter(Boolean);   // inventory order, however workers finish
+    writeReport();
   }
-  report.routes.push(record);
-  writeReport();
 }
+await Promise.all(Array.from({ length: Math.min(PARALLEL, routes.length) }, sweepWorker));
+report.routes = records.filter(Boolean);
 
 /* -------------------------------------------------- app-owned journeys */
 

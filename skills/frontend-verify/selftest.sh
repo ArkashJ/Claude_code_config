@@ -291,6 +291,78 @@ if grep -q '"kind": "sync.stale-after-write"' "$TMP/fixed.json"; then
   echo "  FALSE-POSITIVE  the fixed SPA (refetches on nav) was flagged stale"; fail=1
 else echo "  ok    fixed variant: refetch on navigation, no finding"; fi
 
+# ---------------------------------------------------------------------------
+# AUTO-LOGIN. A gated server: every route redirects to /login until the real
+# form is posted with the right credentials. The sweep, given --login-user/
+# --login-pass, must log itself in, save the state, and actually measure the
+# route -- and without credentials it must honestly report not-reached.
+PORT4="${PORT4:-8753}"
+cat > "$TMP/login-server.mjs" <<'JS'
+import http from 'node:http';
+const [, , port] = process.argv;
+http.createServer((req, res) => {
+  const authed = /session=ok/.test(req.headers.cookie || '');
+  if (req.url === '/login' && req.method === 'POST') {
+    let b = '';
+    req.on('data', (c) => (b += c));
+    req.on('end', () => {
+      if (/user=qa%40example\.com/.test(b) && /pass=secret/.test(b)) {
+        res.writeHead(302, { 'set-cookie': 'session=ok; Path=/', location: '/' }); res.end();
+      } else { res.writeHead(302, { location: '/login' }); res.end(); }
+    });
+    return;
+  }
+  if (!authed && req.url !== '/login') { res.writeHead(302, { location: '/login' }); res.end(); return; }
+  if (req.url === '/login') {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<main><h1>Login</h1><form method="post" action="/login"><input type="email" name="user" aria-label="email" style="width:200px;height:32px"><input type="password" name="pass" aria-label="password" style="width:200px;height:32px"><button type="submit" style="width:44px;height:44px">Go</button></form></main>');
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'text/html' });
+  res.end('<main><h1>Secret dashboard</h1><p>Welcome back.</p><ul><li>row one</li></ul></main>');
+}).listen(Number(port));
+JS
+node "$TMP/login-server.mjs" "$PORT4" & SRV4=$!
+trap 'kill "${SRV:-0}" "${SRV2:-0}" "${SRV3:-0}" "${SRV4:-0}" 2>/dev/null; rm -rf "$TMP"' EXIT
+for _ in $(seq 1 40); do curl -fsS "http://127.0.0.1:$PORT4/login" >/dev/null 2>&1 && break; perl -e 'select undef,undef,undef,0.25'; done
+
+mkdir -p "$TMP/repo-auth/.verify"
+echo "--- auto-login"
+node "$SKILL/bin/sweep.mjs" --repo "$TMP/repo-auth" --base "http://127.0.0.1:$PORT4" \
+  --routes / --json "$TMP/noauth.json" >/dev/null 2>&1
+if grep -q '"kind": "route.not-reached"' "$TMP/noauth.json"; then
+  echo "  ok    without credentials, the gated route honestly reports not-reached"
+else echo "  MISS  gated route measured as reached without auth"; fail=1; fi
+
+node "$SKILL/bin/sweep.mjs" --repo "$TMP/repo-auth" --base "http://127.0.0.1:$PORT4" \
+  --routes / --login-user "qa@example.com" --login-pass "secret" \
+  --json "$TMP/auth.json" >"$TMP/auth-out.txt" 2>&1
+if [ -s "$TMP/repo-auth/.verify/auth.json" ]; then echo "  ok    storage state saved for future runs"
+else echo "  MISS  auth state not saved"; fail=1; fi
+if grep -q '"kind": "route.not-reached"' "$TMP/auth.json"; then
+  echo "  MISS  auto-login did not unlock the gated route"; cat "$TMP/auth-out.txt" | tail -5; fail=1
+else echo "  ok    auto-login unlocked and measured the gated route"; fi
+if grep -q 'Secret' "$TMP/auth.json" || ! grep -q '"kind": "render.empty"' "$TMP/auth.json"; then
+  echo "  ok    the real page behind the gate was rendered"
+else echo "  MISS  gate page empty after login"; fail=1; fi
+
+# ---------------------------------------------------------------------------
+# PARALLEL smoke: three routes, three workers, one report -- records must land
+# in inventory order with per-route findings intact.
+echo "--- parallel sweep"
+node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
+  --routes /,/clean/,/ghost/ --parallel 3 --json "$TMP/par.json" >/dev/null 2>&1
+node -e '
+const r = require(process.argv[1]);
+const routes = r.routes.map((x) => x.route);
+let bad = 0;
+const check = (l, ok) => { console.log((ok ? "  ok    " : "  MISS  ") + l); if (!ok) bad = 1; };
+check("3 routes swept in order", routes.join(",") === "/,/clean/,/ghost/");
+check("buggy route kept its findings", r.routes[0].findings.some((f) => f.kind === "value.leak"));
+check("clean route stayed clean of leaks", !r.routes[1].findings.some((f) => f.kind === "value.leak"));
+process.exit(bad);
+' "$TMP/par.json" || fail=1
+
 echo
 if [ "$fail" -eq 0 ]; then echo "SELFTEST PASS"; else echo "SELFTEST FAIL"; fi
 exit "$fail"

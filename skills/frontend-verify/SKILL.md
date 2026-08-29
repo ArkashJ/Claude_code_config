@@ -1,6 +1,6 @@
 ---
 name: frontend-verify
-description: Use when a frontend is "done" but not trusted - when a feature was built and claimed working but data does not load, one page shows stale values after another page saved, or the last 20% before launch is being burned clicking through screens by hand. Inventories every route and its data dependencies, finds the defect classes that are decidable without a browser, then drives the real app against universal runtime invariants and exits non-zero. Triggers on "verify the frontend", "why does page B still show the old value", "half the data does not load", "QA before launch", "prove this works", "find what is broken before I click through it". Not for visual taste (design-director), not for building UI (impeccable), not for one screen's states (ui-stress).
+description: Use when a frontend is "done" but not trusted - when a feature was built and claimed working but data does not load, one page shows stale values after another page saved, or the last 20% before launch is being burned clicking through screens by hand. Inventories every route and its data dependencies, finds the defect classes that are decidable without a browser, then drives the real app against universal runtime invariants and exits non-zero. Includes marathon mode - hours-long autonomous QA where the agent studies every feature, generates the journeys and assertions itself from source, and loops test-fix-retest until green. Triggers on "verify the frontend", "why does page B still show the old value", "half the data does not load", "QA before launch", "prove this works", "find what is broken before I click through it", "test everything", "QA marathon", "automated testing for hours". Not for visual taste (design-director), not for building UI (impeccable), not for one screen's states (ui-stress).
 ---
 
 # frontend-verify
@@ -66,9 +66,13 @@ bash $S/verify.sh /abs/path/to/repo --base http://localhost:3000     # + the run
 Exit: **0** clean · **1** P0/P1 findings · **2** could not run. That exit code is
 the definition of done — it is what a Stop hook, a pre-commit hook, or CI reads.
 
-`--auth state.json` for a gated app, `--width 390` for mobile, `--quiet` for
-hooks, `--ratchet` inside a fix loop, and `--mutate` (**destructive**, dev DB
-only) to prove sync risks at runtime by driving real forms.
+`--login user:pass` logs in through the app's own form once and saves the
+state to `.verify/auth.json` (reused on every later run; delete it when
+stale). `--parallel 4` sweeps four routes at once (confirm perf findings with
+a serial pass — contention inflates them). `--auth state.json` to supply state
+captured by hand, `--width 390` for mobile, `--quiet` for hooks, `--ratchet`
+inside a fix loop, and `--mutate` (**destructive**, dev DB only) to prove sync
+risks at runtime by driving real forms.
 
 Run a phase on its own when you want just that one:
 
@@ -268,17 +272,75 @@ runs too.
 
 The agent cannot end a turn claiming done while that exits non-zero.
 
-## The fix loop, and its ratchet
+## Marathon mode: hours of testing, zero authoring from the user
 
-Hours-long autonomous runs are an agent driving this tool, not a feature of it
-— the full runbook (feature ledger, journey authoring, pacing, fan-out, exit
-report) is the `frontend-qa-marathon` skill. The inner loop it enforces:
+The user starts it and confirms two facts (dev database; auth credentials if
+gated). Everything else — including the journeys and the business assertions —
+**the agent derives from the repo**. The build already encodes the intent: a
+form's fields say what the feature accepts, its mutation says what it writes,
+the entity matrix says where the result must appear, and a server-computed
+`total`/`count` field says what the UI number must equal. Asking the user to
+restate any of that in sentences is transcription, not intent.
+
+**Phase 0 — preconditions (refuse to skip).** App reachable at `--base`, dev
+DB confirmed (`--mutate` submits real forms). Clean branch — one commit per
+fix, revertible. If any route redirects to login, ask the user for dev
+credentials ONCE and pass `--login user:pass` — the sweep logs in through the
+app's real form and persists the state, so this never comes up again. A sweep
+that reaches 6/49 routes is a lap of the parking lot. Both selftests pass —
+calibrate the instruments before the flight. Big app? `--parallel 4`.
+
+**Phase 1 — study.** Run the inventory, then read the source of every route
+with a mutation. Write `.verify/ledger.md`, one row per route:
+`| route | entities | mutations | journey | swept | status |` with status
+`untested → journeyed → swept → clean | bug:<id> → fixed`. Ledger rows must
+equal `inventory.counts.routes` — state both numbers; a ledger built from a
+truncated list tests a sample and reports a total. Dynamic routes get a seed
+note: which record the journey creates so the sweep's `:id` blind spot closes.
+
+**Phase 2 — the agent writes the journeys.** For every row with a form or
+mutation, generate the journey in `verify.journeys.mjs` from what Phase 1
+read: fill the form's actual fields, submit, client-side-navigate to each
+route the entity matrix says renders the result, assert the new record is
+there. Derive assertions from code, in this order of confidence:
+1. **Free** (no authoring at all): the 18 sweep invariants plus
+   `data.rendered-zero-of-n` — DOM rows vs API array length is already checked
+   on every route.
+2. **Derived**: the API response carries `total`, `sum`, `count`, `balance`,
+   or a field computed from a list in server code → assert the rendered number
+   equals the recomputation from the rendered rows.
+3. **Residue**: only a rule invisible in code (a legal threshold, a domain
+   convention) earns a question to the user — expect a handful per app, not
+   hours. If unanswered, ship the derived assertions and mark the ledger row
+   `clean*` (consistency-checked, intent unconfirmed) — never block on it.
+Use `playwright-cli` to discover selectors; the durable output is the journey
+file, not the browsing session.
+
+**Phase 3 — the loop.** This is the hours part:
 
 ```
-run verify.sh --ratchet →  exit 0? done.
-  → pick the top finding → fix the ROOT CAUSE (grep every caller first)
-  → selftests still pass → rerun verify.sh --ratchet → repeat
+run verify.sh <repo> --base <url> --auth .verify/auth.json --mutate --ratchet
+  exit 0? → done.
+  → pick the TOP finding (P0, then P1, then count) → fix the ROOT CAUSE
+    (grep every caller first; one guard in the shared function beats N at
+    N call sites) → commit that one fix → update the ledger row
+  → selftests still pass → rerun → repeat
+  RATCHET failure → revert the last commit, take the next finding instead
 ```
+
+Pace with `/loop` or scheduled wakeups, never sleep-polling; long sweeps run
+in the background and deserve one check when they finish. Checkpoint every ~45
+minutes: commit plus a one-line ledger summary ("31/49 clean, 3 fixed, 2
+open") — numbers, not adjectives. A finding judged a false positive is not
+ignored: it goes through the rule loop below (counter-example planted,
+selftest green) or stays on the ledger as open; there is no third bucket.
+Independent bugs on disjoint routes may fan out to parallel agents — one
+ledger row each, full gate before reporting, commit hash or "blocked" and
+nothing else; never two agents on one store or hook.
+
+**Exit report.** Routes total / clean / fixed (commit hashes) / open (finding
+ids), the ratchet trajectory, and the gate's exit code quoted verbatim. If the
+gate is red at hand-off, the first word is FAIL.
 
 Two rules keep the loop honest, and both are enforced, not aspirational:
 
