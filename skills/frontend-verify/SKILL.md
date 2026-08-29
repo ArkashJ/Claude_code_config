@@ -43,19 +43,28 @@ directory, so it cannot matter where your shell happens to be.
 
 ```bash
 S=~/.claude/skills/frontend-verify
-R=/abs/path/to/the/repo        # the repo under test
 
-# 1. INVENTORY — what exists, what reads what, what goes stale when.  (seconds, no browser)
-node $S/bin/inventory.mjs "$R"
-
-# 2. CLASSIFY — the defect classes decidable from source alone.        (seconds, no browser)
-node $S/bin/classify.mjs "$R"
-
-# 3. SWEEP — drive every route against the universal invariants.       (minutes, app must be running)
-node $S/bin/sweep.mjs --repo "$R" --base http://localhost:3000
-
-# 4. GATE — the exit code IS the definition of done.
+# Everything, in order, cheapest first:
+bash $S/verify.sh /abs/path/to/repo                                  # static only, seconds
+bash $S/verify.sh /abs/path/to/repo --base http://localhost:3000     # + the runtime sweep
 ```
+
+Exit: **0** clean · **1** P0/P1 findings · **2** could not run. That exit code is
+the definition of done — it is what a Stop hook, a pre-commit hook, or CI reads.
+
+`--auth state.json` for a gated app, `--width 390` for mobile, `--quiet` for hooks.
+
+Run a phase on its own when you want just that one:
+
+```bash
+node $S/bin/inventory.mjs "$R"                                   # routes, data deps, sync graph
+node $S/bin/classify.mjs  "$R"                                   # source-decidable defects
+node $S/bin/sweep.mjs --repo "$R" --base http://localhost:3000   # runtime invariants
+```
+
+**Exit 2 is not a pass.** Zero routes, zero swept pages, or a sweep that could not
+start all exit 2 rather than 0 — a run that measured nothing must never read as
+green, which is the failure this whole skill exists to prevent.
 
 ### Where everything lives
 
@@ -167,8 +176,11 @@ Done is an exit code, not a sentence. Add to `.claude/settings.json`:
 
 ```json
 { "hooks": { "Stop": [{ "hooks": [{ "type": "command",
-  "command": "node ~/.claude/skills/frontend-verify/bin/classify.mjs . || echo 'BLOCKED: P0/P1 findings — see above' >&2" }] }] } }
+  "command": "bash ~/.claude/skills/frontend-verify/verify.sh \"$CLAUDE_PROJECT_DIR\" --quiet || echo 'BLOCKED: frontend-verify found P0/P1 findings — run it without --quiet to see them' >&2" }] }] } }
 ```
+
+Same command works as a pre-commit hook or a CI step. In CI, pass `--base` against
+the preview deployment so the runtime half runs too.
 
 The agent cannot end a turn claiming done while that exits non-zero.
 

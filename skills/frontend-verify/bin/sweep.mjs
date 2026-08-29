@@ -116,6 +116,13 @@ function routesToSweep() {
 
 const playwright = await loadPlaywright();
 const routes = routesToSweep();
+// Zero routes is not a clean sweep, it is a sweep that did not happen: an empty
+// or unrecognised inventory, or a --routes list that filtered to nothing. Exiting
+// 0 here would report PASS for an app nobody looked at.
+if (!routes.length) {
+  console.error('sweep: no routes to visit. Run inventory.mjs first, or pass --routes /,/dashboard.');
+  process.exit(2);
+}
 const probeSrc = fs.readFileSync(PROBE, 'utf8').replace(/^\s*\/\/[^\n]*\n/gm, '').trim();
 const probeFn = eval('(' + probeSrc + ')');
 
