@@ -145,6 +145,15 @@ function routeQueryCounts() {
 }
 const ROUTE_QUERIES = routeQueryCounts();
 
+// ...and the join is only as good as the walk that fed it. The same import-graph
+// blind spots that once reported `modules: 1` on every route also undercount
+// query hooks, and an undercounting walk turns this P1 into "N hooks are
+// reachable and none fired" with N invented. So the rule carries its own
+// denominator check: if the walk found data dependencies on fewer than a third
+// of routes, it did not resolve the app, and one route's entry is not evidence.
+const QUERY_JOIN_TRUSTED = ROUTE_QUERIES.size > 0
+  && [...ROUTE_QUERIES.values()].filter((n) => n > 0).length >= ROUTE_QUERIES.size / 3;
+
 // The dev server WILL hiccup over an hours-long run. Any HTTP response at all
 // means it is up; only a connection-level failure means it is not.
 //
@@ -598,7 +607,7 @@ async function sweepRoute(route) {
   // that way the finding stops being "either this route needs none, or the sweep
   // is measuring nothing" and becomes one claim: the import graph found N query
   // hooks reachable from here and not one of them fired.
-  if (!redirectedTo && !unreachable && (ROUTE_QUERIES.get(route) ?? 0) > 0
+  if (!redirectedTo && !unreachable && QUERY_JOIN_TRUSTED && (ROUTE_QUERIES.get(route) ?? 0) > 0
       && !L.requests.some((r) => r.type === 'xhr' || r.type === 'fetch') && inPage.length === 0)
     push('verify.no-data-traffic', 'P1', ROUTE_QUERIES.get(route) + ' query hook(s) are reachable from this route and none of them fired -- no request at the network layer or in-page');
 

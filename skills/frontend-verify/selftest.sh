@@ -16,6 +16,19 @@ PORT="${PORT:-8749}"
 PORT2="${PORT2:-8751}"
 PORT3="${PORT3:-8752}"
 TMP="$(mktemp -d)"
+# The app under test is the FIXTURE SERVER, not any repo -- so --repo points at
+# an empty directory. It used to point at "${PLAYWRIGHT_HOME:-$PWD}", which made
+# the suite's verdict depend on the caller's working directory: run it from a
+# repo that has a verify.journeys.mjs and the sweep loads those journeys, drives
+# them against a server that serves one file, and reports their 404s as findings.
+# That produced 7 404s where the suite asserts 1, and extra destinations where it
+# asserts 3 routes in order -- two failures that looked pre-existing and were
+# entirely the caller's cwd. Different output from identical inputs, which is the
+# structural tell in SKILL.md read backwards.
+# PLAYWRIGHT_HOME still overrides where Playwright is FOUND; that is a different
+# question from which app is being verified, and conflating them was the bug.
+BARE="$TMP/repo-bare"
+mkdir -p "$BARE"
 trap 'kill "${SRV:-0}" "${SRV2:-0}" "${SRV3:-0}" 2>/dev/null; rm -rf "$TMP"' EXIT
 
 cp "$SKILL/references/fixture.html" "$TMP/index.html"
@@ -34,7 +47,7 @@ done
 # skill itself carries no node_modules by design.
 # --settle 4000: Chrome emits the unused-preload warning "a few seconds" after
 # load; the default settle would close the page before it arrives.
-node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
+node "$SKILL/bin/sweep.mjs" --repo "$BARE" --base "http://127.0.0.1:$PORT" \
   --routes / --settle 4000 --json "$TMP/report.json" >"$TMP/out.txt" 2>&1
 echo "--- sweep output"; cat "$TMP/out.txt"
 
@@ -70,6 +83,14 @@ absent() {
     echo "  ok    no false positive: $1"
   fi
 }
+
+# REGRESSION GUARD for the bug above. A journey record in this report means the
+# sweep picked up a verify.journeys.mjs from somewhere other than the repo under
+# test -- i.e. --repo drifted back to the caller's directory. Assert the shape,
+# not the cwd, so the check works however the suite is invoked.
+if grep -q '"route": "(journey:' "$TMP/report.json"; then
+  echo "  FAIL  journeys leaked in from outside the repo under test -- --repo is reading the caller's directory"; fail=1
+else echo "  ok    no journeys leaked in from the caller's directory"; fi
 
 echo "--- planted defects"
 have value.leak
@@ -148,7 +169,7 @@ cat > "$TMP/clean/index.html" <<'HTML'
 <ul><li>one</li><li>two</li></ul>
 <button style="width:44px;height:44px" aria-label="ok">OK</button></main>
 HTML
-node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
+node "$SKILL/bin/sweep.mjs" --repo "$BARE" --base "http://127.0.0.1:$PORT" \
   --routes /clean/ --json "$TMP/clean.json" >/dev/null 2>&1
 
 mkdir -p "$TMP/ghost"
@@ -156,7 +177,7 @@ cat > "$TMP/ghost/index.html" <<'HTML'
 <!doctype html><meta charset="utf-8"><title>ghost</title>
 <main><h1>404 - Page not found</h1><p>No such record.</p></main>
 HTML
-node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
+node "$SKILL/bin/sweep.mjs" --repo "$BARE" --base "http://127.0.0.1:$PORT" \
   --routes /ghost/ --json "$TMP/ghost.json" >/dev/null 2>&1
 echo "--- not-found shell"
 if grep -q '"kind": "route.not-found-shell"' "$TMP/ghost.json"; then
@@ -368,7 +389,7 @@ else echo "  MISS  gate page empty after login"; fail=1; fi
 # PARALLEL smoke: three routes, three workers, one report -- records must land
 # in inventory order with per-route findings intact.
 echo "--- parallel sweep"
-node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
+node "$SKILL/bin/sweep.mjs" --repo "$BARE" --base "http://127.0.0.1:$PORT" \
   --routes /,/clean/,/ghost/ --parallel 3 --json "$TMP/par.json" >/dev/null 2>&1
 node -e '
 const r = require(process.argv[1]);
