@@ -148,8 +148,21 @@ not broken. Drop `verify.roles.json` at the repo root:
 
 ```json
 { "staff":  { "auth": ".verify/auth.json",        "owns": ["/"], "excludes": ["/portal"] },
-  "portal": { "auth": ".verify/auth-portal.json", "owns": ["/portal"] } }
+  "portal": { "auth": ".verify/auth-portal.json", "owns": ["/portal"] },
+  "proxy":  { "auth": ".verify/auth.json",        "owns": ["/portal"],
+              "headers": { "X-Profectus-Proxy-Customer": "cust-1" } } }
 ```
+
+A principal is **not always a cookie jar**. The third role above is a staff user
+acting *through* the customer portal: same storage state as `staff`, different
+authority, different expected surface, distinguished only by a request header.
+`headers` makes that lens expressible; without it it gets misfiled as `portal`
+and its distinct behaviour is never measured. Two roles may own the same tree —
+that is the point, and each sweeps it under its own identity.
+
+Count the principals from the app's own test helpers, not from the login screen:
+one real repo had **ten** (nine staff roles plus a portal producer) where the UI
+suggested two.
 
 Each role sweeps only the routes it owns (prefix match), under its own storage
 state, and every record carries its `role`. Without a roles file the sweep runs
@@ -184,7 +197,12 @@ entity**, not per feature.
 Every route, every run, no authoring:
 
 1. Zero console errors, page errors, unhandled rejections
-2. Zero failed same-origin requests; zero unexpected 4xx/5xx
+2. Zero failed same-origin requests; zero unexpected 4xx/5xx. A **4xx the page
+   handled** — the surface still renders, nothing crashed, nothing stayed blank
+   or spinning — is P2, not P1: a deliberate negative fixture is coverage, not a
+   defect, and the repos that get flagged hardest for it are the ones testing
+   their error paths properly. 5xx is exempt; a server fault is a defect whoever
+   caught it
 3. No hydration mismatch, no chunk-load failure, no CSP violation
 4. Root renders non-empty text
 5. No loading indicator still mounted after settle

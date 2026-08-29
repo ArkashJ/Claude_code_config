@@ -168,6 +168,15 @@ cat > "$TMP/clean/index.html" <<'HTML'
 <main><h1>Clean</h1><p>Everything is fine here.</p>
 <ul><li>one</li><li>two</li></ul>
 <button style="width:44px;height:44px" aria-label="ok">OK</button></main>
+<script>
+  // PLANTED: a 4xx the page HANDLES. A deliberate negative fixture -- an app
+  // asking for something it is prepared to be refused -- must not be filed at
+  // the same severity as a break. Measured: a mock named `mock-report-stale-
+  // filter`, returning 422 to exercise a documented contract, was filed P1 on a
+  // page that rendered perfectly. The discriminator is whether the surface still
+  // holds afterwards, which needs no per-repo configuration.
+  fetch('/clean/handled-refusal.json').catch(function () {});
+</script>
 HTML
 node "$SKILL/bin/sweep.mjs" --repo "$BARE" --base "http://127.0.0.1:$PORT" \
   --routes /clean/ --json "$TMP/clean.json" >/dev/null 2>&1
@@ -183,6 +192,24 @@ echo "--- not-found shell"
 if grep -q '"kind": "route.not-found-shell"' "$TMP/ghost.json"; then
   echo "  ok    not-found surface reported as its own finding"
 else echo "  MISS  a not-found page was measured as if it were the route"; fail=1; fi
+
+echo "--- handled vs unhandled non-2xx"
+node -e '
+const buggy = require(process.argv[1]), clean = require(process.argv[2]);
+const f = (r) => r.routes.flatMap((x) => x.findings).filter((x) => /^network\.http-4/.test(x.kind));
+const onBroken = f(buggy), onIntact = f(clean);
+let bad = 0;
+const check = (l, ok, got) => { console.log((ok ? "  ok    " : "  MISS  ") + l + "  (" + got + ")"); if (!ok) bad = 1; };
+// The buggy page crashes and stays blank, so its 404 is NOT handled -- P1 stands.
+check("4xx on a page whose surface broke stays P1",
+      onBroken.length > 0 && onBroken.every((x) => x.severity === "P1"),
+      onBroken.map((x) => x.severity).join(",") || "no 4xx at all");
+// The clean page renders and satisfies every invariant, so its 404 is handled.
+check("4xx on a page that still holds its invariants demotes to P2",
+      onIntact.length > 0 && onIntact.every((x) => x.severity === "P2"),
+      onIntact.map((x) => x.severity).join(",") || "no 4xx at all");
+process.exit(bad);
+' "$TMP/report.json" "$TMP/clean.json" || fail=1
 
 echo "--- differential (distinct inputs must give distinct output)"
 node -e '

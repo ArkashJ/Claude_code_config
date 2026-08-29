@@ -216,10 +216,16 @@ try {
 // context can never reach more than its own half -- and the half it cannot reach
 // reports as findings unless the caller knows to ignore them. Everything below
 // installs identically into every role's context.
-async function makeContext(authPath) {
+// `headers` exists because a principal is not always a cookie jar. A staff user
+// acting THROUGH the customer portal is a third lens over the same routes,
+// distinguished only by a request header (`X-Profectus-Proxy-Customer`) -- same
+// storage state as staff, different authority, different expected surface.
+// Without it that lens is inexpressible and gets misfiled as the portal role.
+async function makeContext(authPath, headers) {
   const ctx = await browser.newContext({
     viewport: { width: WIDTH, height: HEIGHT },
     ...(authPath && fs.existsSync(authPath) ? { storageState: authPath } : {}),
+    ...(headers && Object.keys(headers).length ? { extraHTTPHeaders: headers } : {}),
   });
   for (const script of INIT_SCRIPTS) await ctx.addInitScript(script);
   return ctx;
@@ -340,11 +346,12 @@ INIT_SCRIPTS.push(() => {
 function loadRoles() {
   const file = [path.join(REPO, 'verify.roles.json'), path.join(REPO, '.verify', 'roles.json')]
     .find((f) => fs.existsSync(f));
-  if (!file) return [{ name: 'default', auth: AUTH, owns: ['/'], excludes: [] }];
+  if (!file) return [{ name: 'default', auth: AUTH, headers: null, owns: ['/'], excludes: [] }];
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   return Object.entries(raw).map(([name, r]) => ({
     name,
     auth: r.auth ? path.resolve(REPO, r.auth) : AUTH,
+    headers: r.headers ?? null,
     owns: r.owns ?? ['/'],
     excludes: r.excludes ?? [],
   }));
@@ -600,6 +607,27 @@ async function sweepRoute(route) {
   }
 
   const inPage = await mergeInPage(page, L);
+
+  // A non-2xx the app RENDERS A DESIGNED STATE FOR is not a defect, and the
+  // repos that get flagged hardest for it are the ones testing their error paths
+  // properly. Measured: a fixture literally named `mock-report-stale-filter`,
+  // returning 422 "this saved filter needs updating" to exercise a documented
+  // contract, was filed as a P1 on a page that rendered perfectly.
+  //
+  // The discriminator needs no per-repo config: did the page still satisfy its
+  // invariants afterwards? If nothing crashed, nothing stayed blank and nothing
+  // stayed spinning, the app handled the response -- that is what "handled"
+  // means. 5xx is exempt: a server fault is a defect whoever caught it.
+  const HANDLED = /^(render\.empty|render\.stuck-loading|render\.hydration|console\.pageerror|delivery\.chunk-load|value\.leak)/;
+  const surfaceBroke = [...L.findings, ...(probe.findings ?? [])].some((f) => HANDLED.test(f.kind));
+  if (!surfaceBroke && !redirectedTo && !unreachable) {
+    for (const f of L.findings) {
+      const code = Number((f.kind.match(/^network\.http-(\d+)$/) ?? [])[1]);
+      if (!code || code >= 500) continue;
+      f.severity = 'P2';
+      f.detail += ' -- the page still rendered and satisfied every invariant afterwards, so the app handled this; P1 only if a surface actually broke';
+    }
+  }
   // Only for routes actually reached: a redirected route already carries
   // route.not-reached, and 43 copies of "no traffic" on a gated app are 43
   // restatements of that one finding.
@@ -719,7 +747,7 @@ function resumeRecords() {
 /* ------------------------------------------------------------- role sweep */
 
 const ROLES = loadRoles();
-report.roles = ROLES.map((r) => ({ name: r.name, owns: r.owns, excludes: r.excludes, auth: path.relative(REPO, r.auth) }));
+report.roles = ROLES.map((r) => ({ name: r.name, owns: r.owns, excludes: r.excludes, auth: path.relative(REPO, r.auth), headers: r.headers ? Object.keys(r.headers) : undefined }));
 const RESUMED = resumeRecords();
 
 if (!flag('no-warm')) await httpWarm(routes);
@@ -775,7 +803,7 @@ for (const role of ROLES) {
 
   // Reuse the primary context for the default/first role so the auto-login
   // state captured above is not thrown away.
-  const roleCtx = role.auth === AUTH ? context : await makeContext(role.auth);
+  const roleCtx = role.auth === AUTH && !role.headers ? context : await makeContext(role.auth, role.headers);
   const prevCtx = context;
   context = roleCtx;
   // Same path under two principals renders two different pages, so the
