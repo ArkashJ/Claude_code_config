@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // Static defect classifier. No browser, no build, no dependencies.
 //
-//   node classify.mjs [repoRoot] [--json]
+//   node classify.mjs <repoRoot>          -> prints a report, writes <repoRoot>/.verify/classify.json
+//   node classify.mjs <repoRoot> --json   -> JSON to stdout instead
+//
+// Output lands next to the REPO BEING ANALYSED, never in the current working
+// directory: this skill is installed once and run against many repos.
 //
 // Each rule below is a NAMED FAILURE CLASS, not a lint preference: every one of
 // them has shipped a real bug. Rules are keyed to references/atlas.md so a finding
@@ -239,9 +243,14 @@ findings.sort((a, b) => order[a.severity] - order[b.severity] || a.rule.localeCo
 const byRule = findings.reduce((a, f) => ((a[f.rule] = (a[f.rule] ?? 0) + 1), a), {});
 const bySev = findings.reduce((a, f) => ((a[f.severity] = (a[f.severity] ?? 0) + 1), a), {});
 
+const payload = JSON.stringify({ root: ROOT, files: FILES.length, counts: { total: findings.length, ...bySev }, byRule, findings }, null, 2) + '\n';
+
 if (JSON_OUT) {
-  process.stdout.write(JSON.stringify({ root: ROOT, files: FILES.length, counts: { total: findings.length, ...bySev }, byRule, findings }, null, 2) + '\n');
+  process.stdout.write(payload);
 } else {
+  const outDir = path.join(ROOT, '.verify');
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, 'classify.json'), payload);
   console.log(`\n  ${FILES.length} source files scanned in ${ROOT}`);
   console.log(`  ${findings.length} findings  ${Object.entries(bySev).map(([k, v]) => `${k}:${v}`).join('  ')}\n`);
   for (const [rule, n] of Object.entries(byRule).sort((a, b) => b[1] - a[1])) {
@@ -252,5 +261,6 @@ if (JSON_OUT) {
     if (n > 3) console.log(`        ... and ${n - 3} more`);
     console.log('');
   }
+  console.log(`  -> ${path.join(ROOT, '.verify', 'classify.json')}\n`);
 }
 process.exit(bySev.P0 || bySev.P1 ? 1 : 0);

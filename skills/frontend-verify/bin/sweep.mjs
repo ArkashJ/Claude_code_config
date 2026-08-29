@@ -2,9 +2,14 @@
 // Runtime sweep. Drives every route in the inventory and applies the universal
 // invariants. Exits non-zero on P0/P1 -- that exit code is the definition of done.
 //
-//   node sweep.mjs --base http://localhost:3000 [--inventory .verify/inventory.json]
+//   node sweep.mjs --repo <repoRoot> --base http://localhost:3000
 //                  [--routes /,/dashboard] [--width 1280] [--auth state.json]
-//                  [--leak-check] [--json report.json]
+//                  [--leak-check] [--json <path>]
+//
+// --repo anchors everything: the inventory is read from <repo>/.verify/inventory.json
+// and the report is written to <repo>/.verify/sweep.json. Nothing resolves against
+// the current working directory, because this skill runs against many repos and a
+// cwd-relative path drops one repo's report into another's directory.
 //
 // Playwright is resolved from the TARGET repo, not from here: the skill carries
 // no node_modules and must not pin a version against the repo under test.
@@ -22,15 +27,16 @@ const BASE = (arg('base') ?? 'http://localhost:3000').replace(/\/$/, '');
 const WIDTH = Number(arg('width', '1280'));
 const HEIGHT = Number(arg('height', '900'));
 const SETTLE_MS = Number(arg('settle', '1200'));
-const INVENTORY = arg('inventory', '.verify/inventory.json');
+const REPO = path.resolve(arg('repo', '.'));
+const INVENTORY = arg('inventory', path.join(REPO, '.verify', 'inventory.json'));
 const AUTH = arg('auth');
-const JSON_OUT = arg('json');
+const JSON_OUT = arg('json', path.join(REPO, '.verify', 'sweep.json'));
 const PROBE = path.join(path.dirname(new URL(import.meta.url).pathname), 'probe.js');
 
 /* ------------------------------------------------------------- playwright */
 
 async function loadPlaywright() {
-  for (const from of [process.cwd(), path.resolve(arg('repo', '.'))]) {
+  for (const from of [path.resolve(arg('repo', '.')), process.cwd()]) {
     try {
       const req = createRequire(path.join(from, 'package.json'));
       return await import(pathToFileURL(req.resolve('playwright')).href);
@@ -190,7 +196,8 @@ const byKind = all.reduce((a, f) => ((a[f.kind] = (a[f.kind] ?? 0) + 1), a), {})
 report.summary = { routes: report.routes.length, findings: all.length, ...bySev };
 report.finished = new Date().toISOString();
 
-if (JSON_OUT) fs.writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));
+fs.mkdirSync(path.dirname(JSON_OUT), { recursive: true });
+fs.writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));
 
 console.log('\n  ' + BASE + '  ' + report.routes.length + ' routes at ' + WIDTH + 'px');
 console.log('  ' + all.length + ' findings  ' + Object.entries(bySev).map(([k, v]) => k + ':' + v).join('  ') + '\n');
@@ -201,6 +208,7 @@ for (const [kind, n] of Object.entries(byKind).sort((a, b) => b[1] - a[1])) {
     console.log('        ' + f.route + '  ' + f.detail.slice(0, 130));
   if (n > 3) console.log('        ... and ' + (n - 3) + ' more');
 }
+console.log('  -> ' + JSON_OUT);
 if (report.leak) console.log('\n  heap after GC across navigation: ' + report.leak.beforeMB + 'MB -> ' + report.leak.afterMB + 'MB (+' + report.leak.growthMB + 'MB)');
 console.log('');
 

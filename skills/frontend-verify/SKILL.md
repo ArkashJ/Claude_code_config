@@ -37,21 +37,39 @@ transfers at zero cost.
 Cheapest and most exhaustive first. Do not open a browser to learn something a
 file read can tell you.
 
+**Pass the repo as an absolute path.** The skill lives in `~/.claude/skills/` and
+is run against many repos; nothing resolves against the current working
+directory, so it cannot matter where your shell happens to be.
+
 ```bash
 S=~/.claude/skills/frontend-verify
-mkdir -p .verify
+R=/abs/path/to/the/repo        # the repo under test
 
 # 1. INVENTORY — what exists, what reads what, what goes stale when.  (seconds, no browser)
-node $S/bin/inventory.mjs . > .verify/inventory.json
+node $S/bin/inventory.mjs "$R"
 
 # 2. CLASSIFY — the defect classes decidable from source alone.        (seconds, no browser)
-node $S/bin/classify.mjs . | tee .verify/classify.txt
+node $S/bin/classify.mjs "$R"
 
-# 3. SWEEP — drive every route against the universal invariants.       (minutes, needs the app running)
-node $S/bin/sweep.mjs --base http://localhost:3000 --json .verify/sweep.json
+# 3. SWEEP — drive every route against the universal invariants.       (minutes, app must be running)
+node $S/bin/sweep.mjs --repo "$R" --base http://localhost:3000
 
 # 4. GATE — the exit code IS the definition of done.
 ```
+
+### Where everything lives
+
+| | Path | Scope |
+|---|---|---|
+| The tools, `SKILL.md`, `references/atlas.md` | `~/.claude/skills/frontend-verify/` | **global** — installed once, identical for every repo |
+| `inventory.json`, `classify.json`, `sweep.json` | `<repo>/.verify/` | **per-repo** — written beside the repo analysed, never into your cwd |
+
+The atlas is reference material for the tool, so it stays global; findings are
+facts about one codebase, so they stay with it. Add `.verify/` to the repo's
+`.gitignore` unless you want the reports reviewed in PRs — committing them turns
+each run into a diff, which is a reasonable choice for a repo heading to launch.
+
+Add `--stdout` (inventory) or `--json` (classify) to pipe instead of writing.
 
 Read `.verify/inventory.json` before writing any test. `syncRisks` is the
 cross-page staleness bug located statically, with its blast radius; a P1 there

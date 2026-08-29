@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 // Feature inventory + sync graph. Static. No dependencies, no build step.
 //
-//   node inventory.mjs [repoRoot] > .verify/inventory.json
+//   node inventory.mjs <repoRoot>            -> writes <repoRoot>/.verify/inventory.json
+//   node inventory.mjs <repoRoot> --stdout   -> writes to stdout instead
+//
+// Output lands next to the REPO BEING ANALYSED, never in the current working
+// directory. The skill is installed once and run against many repos; a relative
+// output path silently drops one repo's report into whatever directory the
+// shell happened to be in.
 //
 // Answers, without running anything:
 //   - what routes exist                      (filesystem / router config)
@@ -17,7 +23,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = path.resolve(process.argv[2] ?? '.');
+const ARGS = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const ROOT = path.resolve(ARGS[0] ?? '.');
+const TO_STDOUT = process.argv.includes('--stdout');
 const SRC_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs']);
 const SKIP_DIR = /(^|\/)(node_modules|\.next|\.git|dist|build|out|coverage|\.turbo|\.vercel|\.worktrees|\.venv|venv|site-packages|vendor|storybook-static)(\/|$)|\.(test|spec|stories)\.[tj]sx?$/;
 const MAX_IMPORT_DEPTH = 12;
@@ -415,7 +423,7 @@ const duplicateSources = Object.entries(
 ).filter(([, keys]) => keys.size > 1)
   .map(([entity, keys]) => ({ entity, keys: [...keys], detail: `"${entity}" is cached under ${keys.size} distinct key shapes` }));
 
-process.stdout.write(JSON.stringify({
+const payload = JSON.stringify({
   root: ROOT,
   generated: new Date().toISOString(),
   counts: {
@@ -436,4 +444,19 @@ process.stdout.write(JSON.stringify({
   resourceMatrix,
   syncRisks,
   duplicateSources,
-}, null, 2) + '\n');
+}, null, 2) + '\n';
+
+if (TO_STDOUT) {
+  process.stdout.write(payload);
+} else {
+  const outDir = path.join(ROOT, '.verify');
+  fs.mkdirSync(outDir, { recursive: true });
+  const outFile = path.join(outDir, 'inventory.json');
+  fs.writeFileSync(outFile, payload);
+  const c = JSON.parse(payload).counts;
+  const p1 = JSON.parse(payload).syncRisks.filter((r) => r.severity === 'P1').length;
+  console.log('\n  ' + ROOT);
+  console.log('  ' + c.routes + ' routes  ' + c.queries + ' queries  ' + c.mutations + ' mutations');
+  console.log('  ' + c.syncRisks + ' sync risks (' + p1 + ' with a resolved blast radius)  ' + c.duplicateSources + ' duplicate cache keys');
+  console.log('  -> ' + outFile + '\n');
+}
