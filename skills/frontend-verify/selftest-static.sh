@@ -169,6 +169,25 @@ import { AccountsRoute } from '@/components/accounts/accounts-route'
 export default function Page() { return <AccountsRoute /> }
 TSX
 
+cat >> "$TMP/src/api/hooks.ts" <<'TS'
+// Hierarchical children of ['contacts'] -- idiomatic TanStack, NOT duplicates:
+// invalidating the parent covers them.
+export function useContactOrders(id: string) {
+  return useQuery({ queryKey: ['contacts', id, 'orders'], queryFn: () => fetch('/api/contacts/' + id + '/orders') })
+}
+export function useContactFavorites(id: string) {
+  return useQuery({ queryKey: ['contacts', id, 'order-favorites'], queryFn: () => fetch('/api/contacts/' + id + '/favorites') })
+}
+TS
+node "$SKILL/bin/inventory.mjs" "$TMP" --stdout > "$INV"
+echo "--- key hierarchy vs duplicate source"
+node -e '
+const j = require(process.argv[1]);
+const hits = j.duplicateSources.map((d) => d.endpoint).join(",");
+if (j.duplicateSources.length === 0) console.log("  ok    hierarchical keys not flagged as duplicate sources");
+else { console.log("  FALSE-POSITIVE  key hierarchy flagged: " + hits); process.exit(1); }
+' "$INV" || fail=1
+
 echo "--- monorepo traversal"
 node "$SKILL/bin/inventory.mjs" "$MONO" --stdout > "$MONO/inv.json" || { echo "  FAIL: crashed"; fail=1; }
 node -e '

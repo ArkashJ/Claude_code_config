@@ -128,6 +128,27 @@ that is not read is worse than no tool. When adding a rule:
 - JSON-LD blocks are serialized data, not markup.
 - Prefer a miss to a false positive. A miss surfaces later; a false alarm costs
   the reader's trust the first time they open the file and find nothing wrong.
+- Say how strong the claim is. "This write leaves route X stale" and "I could not
+  determine what goes stale" are different assertions; filing both at one severity
+  makes the strong one look as soft as the weak one. `unresolved: true` marks it.
+- A finding repeated across N routes is usually one finding about the surface all
+  N of them landed on. Check the denominator counts routes, not cells.
+
+## Structural tells that a run is an artifact
+
+The costliest failures are not wrong rows, they are confident numbers produced by
+a harness that never measured the thing. Every one of these was caught by shape,
+not by reading any individual finding:
+
+| Tell | What it means |
+|---|---|
+| Identical output across deliberately different inputs | The experiment never ran. The differential check in `selftest.sh` exists for exactly this. |
+| One selector or surface repeated across N routes | N routes landed on the same page — auth redirect, not-found shell — and got measured under their own names. |
+| `modules: 1` on every route in the inventory | The import walk resolved nothing at hop 1. Aliases are wrong; the app is not "clean". |
+| A count that is a multiple of the file count | Per-route sums counting shared modules once per route. |
+| Zero of something a grep finds hundreds of | The matcher missed a wrapper, a generic, or a path alias. Grep before believing a zero. |
+
+When a number looks decisive, check its denominator before publishing it.
 
 ## Prove the probes fire
 

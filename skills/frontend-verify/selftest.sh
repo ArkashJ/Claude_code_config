@@ -108,6 +108,18 @@ HTML
 node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
   --routes /clean/ --json "$TMP/clean.json" >/dev/null 2>&1
 
+mkdir -p "$TMP/ghost"
+cat > "$TMP/ghost/index.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>ghost</title>
+<main><h1>404 - Page not found</h1><p>No such record.</p></main>
+HTML
+node "$SKILL/bin/sweep.mjs" --repo "${PLAYWRIGHT_HOME:-$PWD}" --base "http://127.0.0.1:$PORT" \
+  --routes /ghost/ --json "$TMP/ghost.json" >/dev/null 2>&1
+echo "--- not-found shell"
+if grep -q '"kind": "route.not-found-shell"' "$TMP/ghost.json"; then
+  echo "  ok    not-found surface reported as its own finding"
+else echo "  MISS  a not-found page was measured as if it were the route"; fail=1; fi
+
 echo "--- differential (distinct inputs must give distinct output)"
 node -e '
 const a = require(process.argv[1]), b = require(process.argv[2]);

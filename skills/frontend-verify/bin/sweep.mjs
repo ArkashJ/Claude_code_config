@@ -239,6 +239,21 @@ for (const route of routes) {
         + (/\b(login|signin|sign-in|auth)\b/.test(landedPath) ? ' -- the sweep is unauthenticated; pass --auth <storageState.json> to cover this route' : ''));
       redirectedTo = landedPath;
     }
+    // A not-found shell is not the route's surface either. A sweep that
+    // substitutes a synthetic :id which exists in no fixture measures the
+    // not-found page under every detail route's name -- same family as a
+    // redirect, and just as good at manufacturing a confident wrong number.
+    if (!redirectedTo) {
+      const notFound = await page.evaluate(() => {
+        const t = ((document.body && document.body.innerText) || '').slice(0, 600).toLowerCase();
+        return /\b(404|not found|page not found|does(n't| not) exist|no such|couldn't find|could not find)\b/.test(t);
+      }).catch(() => false);
+      if (notFound) {
+        push('route.not-found-shell', 'P1', 'route rendered a not-found surface -- if this path has a dynamic segment, the sweep used an id that exists in no fixture, so nothing below measures the real route');
+        redirectedTo = landedPath + ' (not-found)';
+      }
+    }
+
     // Probe a destination once. Everything found on /login belongs to /login.
     if (!measured.has(landedPath)) {
       measured.add(landedPath);

@@ -564,12 +564,18 @@ for (const m of byLoc.values()) {
   const readers = (res ? resourceMatrix[res] : null) ?? (m.writes ? matrix[m.writes] : null) ?? null;
   const name = m.hook ? `${m.hook}()` : `${m.file}:${m.line}`;
   if (!m.invalidates.length) {
+    // Three distinct claims, three severities. "This write leaves route X stale"
+    // is evidence; "I could not work out what goes stale" is an admission, and
+    // filing them at the same severity makes the strong finding look as soft as
+    // the weak one. unresolved:true says so in the record, not just in the prose.
+    const severity = readers?.length ? 'P1' : (m.writes ? 'P2' : 'P3');
     syncRisks.push({
-      severity: readers?.length ? 'P1' : 'P2', kind: 'no-invalidation',
+      severity, kind: 'no-invalidation', unresolved: !readers?.length,
       entity: m.writes ?? res, hook: m.hook, mutation: `${m.file}:${m.line}`, verb: m.verb, endpoint: m.endpoint,
       invalidates: [], staleRoutes: readers,
       detail: `${name} writes ${m.endpoint ?? m.writes ?? 'server state'} and invalidates no query`
-        + (readers?.length ? `; ${readers.length} route(s) render it` : '; affected routes undetermined'),
+        + (readers?.length ? `; ${readers.length} route(s) render it`
+          : m.writes ? `; nothing found rendering "${m.writes}"` : '; could not determine what goes stale'),
     });
     continue;
   }
@@ -586,11 +592,30 @@ for (const m of byLoc.values()) {
 syncRisks.sort((a, b) => a.severity.localeCompare(b.severity) || (b.staleRoutes?.length ?? -1) - (a.staleRoutes?.length ?? -1));
 
 // An entity read under two shapes of key is two sources of truth for one thing.
-const duplicateSources = Object.entries(
-  routeReport.flatMap((r) => r.queries).filter((q) => q.entity)
-    .reduce((a, q) => ((a[q.entity] ??= new Set()).add(q.key.replace(/\s/g, '')), a), {})
-).filter(([, keys]) => keys.size > 1)
-  .map(([entity, keys]) => ({ entity, keys: [...keys], detail: `"${entity}" is cached under ${keys.size} distinct key shapes` }));
+// Two sources of truth for ONE resource, not a key hierarchy. TanStack keys are
+// deliberately hierarchical -- ["accounts", id, "orders"] and ["accounts", id,
+// "order-favorites"] are CHILDREN of ["accounts"], and invalidating the parent
+// covers both. That is the idiom, not a defect. The real defect is two different
+// key shapes that fetch THE SAME ENDPOINT, which genuinely gives one resource two
+// caches that can disagree. Grouping by entity alone flagged every correctly
+// keyed hierarchy in a repo.
+const byEndpoint = {};
+for (const q of routeReport.flatMap((r) => r.queries)) {
+  if (!q.entity || !q.endpoint) continue;
+  // An endpoint with unresolved interpolation is not a comparable literal:
+  // "${BASE}/analytics/" is three different URLs in three modules, and treating
+  // the raw string as one collapses them into a phantom duplicate.
+  if (/\$\{|\$\w/.test(q.endpoint)) continue;
+  const res = resource(q.endpoint);
+  if (!res) continue;
+  ((byEndpoint[q.endpoint] ??= { entity: q.entity, keys: new Set() })).keys.add(q.key.replace(/\s/g, ''));
+}
+const duplicateSources = Object.entries(byEndpoint)
+  .filter(([, v]) => v.keys.size > 1)
+  .map(([endpoint, v]) => ({
+    entity: v.entity, endpoint, keys: [...v.keys],
+    detail: `${endpoint} is cached under ${v.keys.size} different key shapes -- one resource, two caches that can disagree`,
+  }));
 
 const payload = JSON.stringify({
   root: ROOT,
