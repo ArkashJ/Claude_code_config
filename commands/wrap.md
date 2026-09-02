@@ -95,7 +95,8 @@ Re-derive before acting (never trust this block): `git -C <repo> fetch --prune &
 --porcelain && gh pr view <n> --json state,mergeable && gh pr checks <n>`.
 Done: <3 lines max, each with its verify command>.
 Not done: <items, each "blocked: <failing command>" or "not attempted">.
-Decisions waiting on the human: <each one approved command away, with a recommendation>.
+Decisions waiting on the human: <each one approved command away, with a recommendation —
+  for a merge, literally: `gh pr merge <n> --squash --delete-branch` — say go. Recommend: yes/no, why>.
 Read first: PR #<n> checkpoint log; <one file>.
 ```
 

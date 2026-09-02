@@ -80,6 +80,22 @@ Tripwire: more than ~10 exploration commands inline in the main thread means you
 the orchestrator's context on reading — stop and dispatch subagents. Main-thread context is for
 deciding and editing, not for searching.
 
+## 2b. Declare the skills this task will use — before the human names them
+
+Harvest 2026-09-02: in 37 of 236 sessions the human had to name the tool by hand — "use
+haiku teams", "use fable", "use the qa cli", "use superpowers / impeccable / design director".
+The skills were installed the whole time. So, as part of the enumeration, list the installed
+skills and commands that intersect the task and say which you will invoke and when:
+
+- frontend or "is it working" → `frontend-verify` / the `qa` CLI (marathon mode for hours-long QA)
+- UI look, states, copy → `impeccable`, `ui-stress`, `design-director`
+- unfamiliar ground → `/map`; feature loops → `/featuredev`; PR review → `/investigate`
+- anything over ~an hour or "overnight" → `/mission` (not a plan you hand back)
+- sweeps and summaries → haiku lanes; well-specified lanes → sonnet; judgment → strongest model
+
+If a listed skill does not fit, say why in one line. A skill the human has to request is a
+skill you failed to enumerate.
+
 ## 3. Isolate, commit, push, checkpoint — continuously, without being asked
 
 Work in a worktree. Commit after every green verify; push every commit; open a draft PR at the
@@ -137,5 +153,27 @@ approval moment in sight). So, mechanically:
   written only from a post-write READBACK of the authoritative system, never from inferred
   state (68cc0040: wrong CNAME sent to a client; 06f4a671: prod approval obtained for what
   `benmore deploy .` actually sent to dev).
+
+## 7b. When a tool call is denied — say so, once, in one line
+
+47 of 236 sessions contain "approved", "all allowed", or "ask again". About half of those are
+the human re-granting something already granted because a permission prompt or the auto-mode
+classifier blocked a call and the model moved on WITHOUT saying what was blocked. The human
+then has to notice the gap, guess the cause, and say "ask again".
+
+Protocol: when a call is denied, (1) finish everything that does not depend on it, (2) end the
+turn with one line per denied action — the exact command and what it was for — batched, not
+one at a time, and (3) never route around the denial (a peer session doing it for you is
+permission laundering). If the same class was granted earlier this session, say so in the
+line; do not silently drop the work.
+
+## 8. Ending a turn
+
+A Stop hook (`~/.claude/commands/hooks/block-open-ended-stop.sh`) refuses to end a turn whose
+reply defers work with no accepted reason, or claims done on a dirty tree. Accepted reasons:
+`blocked: <failing command>`, `not attempted`, `human decision` (rule 7 actions, each one
+approved command away with a recommendation). "Next steps" you are allowed to take are not
+next steps — they are the rest of the task. Measured 2026-09-02: "keep going" 40 sessions,
+"do all next steps" 39, "no deferrals" 38, "do a /wrap" 42 — the same stop, four phrasings.
 
 Now show me the preflight output, then ask for the task if I haven't given one.
