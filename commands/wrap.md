@@ -82,7 +82,28 @@ Two traps the script already encodes, so you don't rediscover them:
 Before committing any derived artifact: no client names, addresses, credentials, or confidential
 document content in anything committed or posted. Patterns, not payloads.
 
-## 8. Final status line
+## 8. Continuation prompt — print it, don't just file it
+
+The single most frequent request across 236 harvested sessions (58 of them, 77 turns — more
+than "status?", more than "merge") is some form of *"give me a handoff prompt"*. The PR
+comment in step 2 is the durable record, but the next session is started by PASTING A PROMPT,
+so end the wrap by printing one in a fenced block the human can copy whole:
+
+```
+/start then: <one-sentence mission>.
+Re-derive before acting (never trust this block): `git -C <repo> fetch --prune && git status
+--porcelain && gh pr view <n> --json state,mergeable && gh pr checks <n>`.
+Done: <3 lines max, each with its verify command>.
+Not done: <items, each "blocked: <failing command>" or "not attempted">.
+Decisions waiting on the human: <each one approved command away, with a recommendation>.
+Read first: PR #<n> checkpoint log; <one file>.
+```
+
+Commands, not claims — the /mission preamble explains why a brief labelled "verified" is the
+one that gets you. If the human asks for the prompt before /wrap, this block IS the answer;
+do not make them ask twice (32 sessions contain a re-ask of an already-answered request).
+
+## 9. Final status line
 
 End with: branch, HEAD, PR URL + state, CI state, issues updated/created, board moves, anything
 left dirty or in flight — and the one thing most likely to bite the next session.
