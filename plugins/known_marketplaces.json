@@ -5,7 +5,7 @@
       "repo": "anthropics/claude-plugins-official"
     },
     "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/claude-plugins-official",
-    "lastUpdated": "2026-08-31T20:38:22.275Z"
+    "lastUpdated": "2026-09-02T16:18:26.817Z"
   },
   "ponytail": {
     "source": {
@@ -13,7 +13,7 @@
       "repo": "DietrichGebert/ponytail"
     },
     "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/ponytail",
-    "lastUpdated": "2026-08-04T16:23:27.653Z"
+    "lastUpdated": "2026-09-02T15:10:12.468Z"
   },
   "openai-codex": {
     "source": {
