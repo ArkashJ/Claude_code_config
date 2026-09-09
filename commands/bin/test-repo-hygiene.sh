@@ -79,6 +79,27 @@ stub_gh "master
 main" ""
 check "the main worktree is never called safe to remove" "worktree .* safe to remove" absent
 
+# 5. A worktree with a live process still using it as cwd must be flagged, even
+# with no PR/branch signal at all (this is a pure lsof/filesystem check). Added
+# 2026-09-09: `git worktree remove --force` deleted a directory a running
+# `next dev` still had as its cwd; the dev server kept answering 200 on / while
+# every route started 500ing, undetected for ~20 minutes.
+mkdir -p "$D/live-wt"
+git -C "$D/repo" worktree add -q "$D/live-wt" -b live-wt-branch >/dev/null 2>&1
+( cd "$D/live-wt" && exec tail -f /dev/null ) &
+live_pid=$!
+# lsof needs the child's own cwd, not the backgrounding shell's -- give it a beat
+# to actually chdir and open cwd, bounded so this test can't hang.
+deadline=$((SECONDS + 5))
+while [ "$SECONDS" -lt "$deadline" ]; do
+  lsof -d cwd -Fpn -p "$live_pid" 2>/dev/null | grep -q "n$D/live-wt" && break
+done
+stub_gh "" ""
+check "a worktree with a live process as cwd is flagged, not silently removable" "live-wt.*live process" present
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+git -C "$D/repo" worktree remove --force "$D/live-wt" >/dev/null 2>&1
+
 if [ "$fails" -gt 0 ]; then
   echo "$fails check(s) failed — repo-hygiene.sh can recommend destroying live work"
   exit 1

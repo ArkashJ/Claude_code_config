@@ -20,6 +20,10 @@
 #                            from a prior session, costing a triage turn
 #   dead paths in CLAUDE.md  c83056ea, 3ba29048 — an auto-loaded file pointed at a launch
 #                            checklist that did not exist; agents read this file every session
+#   worktree w/ live proc    2026-09-09 — `git worktree remove --force` deleted a directory a
+#                            running `next dev` still had as its cwd; the dev server kept
+#                            answering (200 on /) but every route started 500ing, undetected for
+#                            ~20 minutes. `git worktree remove` does not check for this itself.
 set -uo pipefail
 
 BRIEF=0
@@ -31,11 +35,28 @@ cd "$DIR" 2>/dev/null || exit 0
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 
 out=()          # collected report lines; counts come from array lengths, not subshells
-n_wt=0; n_br=0; n_wtm=0; n_doc=0; n_path=0
+n_wt=0; n_br=0; n_wtm=0; n_doc=0; n_path=0; n_live=0
 
 # 1. worktrees whose directory is gone
 n_wt=$(git worktree list 2>/dev/null | grep -c 'prunable' || true)
 [ "$n_wt" -gt 0 ] && out+=("  $n_wt prunable worktree(s) — dir gone: git worktree prune")
+
+# 1b. worktrees a live process still has as its cwd — NOT safe to remove even if it
+# otherwise looks stale/merged (see the 2026-09-09 incident above). lsof -d cwd lists
+# every process's current working directory; command is intentionally cheap (no +D
+# recursive file scan) since this runs on every session start.
+if command -v lsof >/dev/null; then
+  main_wt_precheck=$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2; exit}')
+  while IFS= read -r wt; do
+    [ "$wt" = "$main_wt_precheck" ] && continue
+    pids=$(lsof -d cwd -Fpn 2>/dev/null | awk -v w="$wt" '
+      /^p/{pid=substr($0,2)} /^n/{if (index($0,"n"w)==1) print pid}')
+    if [ -n "$pids" ]; then
+      n_live=$((n_live + 1))
+      out+=("  worktree '$wt' has a live process (pid $(echo "$pids" | tr '\n' ',' | sed 's/,$//')) using it as cwd — do NOT force-remove; stop the process first or it silently orphans")
+    fi
+  done < <(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}')
+fi
 
 # 2/3/4. branch + worktree classification from PR state, never from git's merge base
 n_open=0
@@ -132,7 +153,7 @@ for f in CLAUDE.md AGENTS.md; do
            tr -d '`' | sort -u)
 done
 
-total=$((n_wt + n_br + n_wtm + n_doc + n_path))
+total=$((n_wt + n_br + n_wtm + n_doc + n_path + n_live))
 
 if [ "$BRIEF" -eq 1 ]; then
   [ "$total" -eq 0 ] && exit 0        # silent when clean
@@ -142,6 +163,7 @@ if [ "$BRIEF" -eq 1 ]; then
   [ "$n_wtm"  -gt 0 ] && parts+=("${n_wtm} worktree(s) on merged branches")
   [ "$n_doc"  -gt 0 ] && parts+=("${n_doc} dirty agent-instruction file(s)")
   [ "$n_path" -gt 0 ] && parts+=("${n_path} dead path(s) named in CLAUDE.md/AGENTS.md")
+  [ "$n_live" -gt 0 ] && parts+=("${n_live} worktree(s) with a live process using it as cwd")
   msg=$(printf '%s, ' "${parts[@]}"); msg=${msg%, }
   echo "[hygiene] $msg — run ~/.claude/commands/bin/repo-hygiene.sh for detail. Deletions need your OK."
   exit 1
