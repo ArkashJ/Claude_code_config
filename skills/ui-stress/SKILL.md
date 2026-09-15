@@ -81,7 +81,7 @@ Three engines, in yield order. Exact commands are in `references/state-matrix.md
 Probe every cell:
 
 ```bash
-playwright-cli -s=stress run-code "$(cat ~/.claude/skills/ui-stress/probe.js)"
+playwright-cli -s=stress run-code --filename=~/.claude/skills/ui-stress/probe.js
 ```
 
 Returns JSON: findings grouped by rule, severity-sorted, three examples each.
@@ -149,5 +149,4 @@ and the build succeeds.
 
 `bash ~/.claude/skills/ui-stress/selftest.sh` serves a fixture with one planted
 instance of every rule and fails if any rule stops firing. Run it after editing
-`probe.js`. The probe must contain no backticks and no `$` — it is passed as a
-double-quoted shell argument.
+`probe.js`.

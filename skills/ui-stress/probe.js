@@ -1,10 +1,7 @@
 // ui-stress probe - deterministic UI violation detector.
 //
-// Invoke: see SKILL.md (the file is passed as a double-quoted shell argument).
-//
-// HARD CONSTRAINT: no backticks and no dollar signs anywhere in this file.
-// It is passed through a double-quoted shell argument; the shell would eat
-// them. Use string concatenation, never template literals. Keep it that way.
+// Invoke: see SKILL.md (loaded with run-code --filename, so no shell quoting
+// applies to this file).
 
 async page => {
   let axeOk = false;

@@ -15,7 +15,7 @@ curl -s --retry 30 --retry-connrefused --retry-delay 0 -o /dev/null "http://loca
 
 playwright-cli -s="$SESSION" open "http://localhost:$PORT/fixture.html" >/dev/null 2>&1
 playwright-cli -s="$SESSION" resize 390 800 >/dev/null 2>&1
-OUT=$(playwright-cli -s="$SESSION" run-code "$(cat "$DIR/probe.js")" 2>&1 | sed -n '2p')
+OUT=$(playwright-cli -s="$SESSION" run-code --filename="$DIR/probe.js" 2>&1 | sed -n '2p')
 
 RESULT="$OUT" python3 - <<'PY'
 import json, os, sys
