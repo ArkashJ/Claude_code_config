@@ -4,10 +4,10 @@
     "code-review@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/0120fb83da5d",
-        "version": "0120fb83da5d",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/76c85b7366c8",
+        "version": "76c85b7366c8",
         "installedAt": "2026-06-22T01:42:21.958Z",
-        "lastUpdated": "2026-09-02T13:42:16.622Z",
+        "lastUpdated": "2026-09-16T02:31:49.913Z",
         "gitCommitSha": "638b2e275936a5dc7131d8b54dee4dfee99d1aa8"
       }
     ],
@@ -23,10 +23,10 @@
     "pr-review-toolkit@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/0120fb83da5d",
-        "version": "0120fb83da5d",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/76c85b7366c8",
+        "version": "76c85b7366c8",
         "installedAt": "2026-06-22T01:42:51.603Z",
-        "lastUpdated": "2026-09-02T13:42:16.625Z",
+        "lastUpdated": "2026-09-16T02:31:49.913Z",
         "gitCommitSha": "638b2e275936a5dc7131d8b54dee4dfee99d1aa8"
       }
     ],
@@ -46,16 +46,6 @@
         "version": "1.0.0",
         "installedAt": "2026-06-22T01:43:02.124Z",
         "lastUpdated": "2026-06-22T01:43:02.124Z"
-      }
-    ],
-    "superpowers@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0",
-        "version": "6.3.0",
-        "installedAt": "2026-07-12T13:44:35.945Z",
-        "lastUpdated": "2026-08-13T03:19:11.768Z",
-        "gitCommitSha": "d884ae04edebef577e82ff7c4e143debd0bbec99"
       }
     ],
     "vanta@claude-plugins-official": [
@@ -86,6 +76,25 @@
         "installedAt": "2026-08-19T17:07:49.923Z",
         "lastUpdated": "2026-08-19T17:07:49.923Z",
         "gitCommitSha": "651a156ef7a92f380a9494978e223ff555102eac"
+      }
+    ],
+    "playwright@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/playwright/76c85b7366c8",
+        "version": "76c85b7366c8",
+        "installedAt": "2026-09-09T18:00:38.961Z",
+        "lastUpdated": "2026-09-16T02:31:49.909Z"
+      }
+    ],
+    "mattpocock-skills@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/mattpocock-skills/1.2.3",
+        "version": "1.2.3",
+        "installedAt": "2026-09-16T01:19:19.722Z",
+        "lastUpdated": "2026-09-16T01:19:19.722Z",
+        "gitCommitSha": "3cca18b368ae95cdbdebbff572ccafa662551015"
       }
     ]
   }
