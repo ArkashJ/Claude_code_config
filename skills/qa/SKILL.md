@@ -225,6 +225,9 @@ qa run APP --base URL --once | --hours N         # sustained QA, only with an ex
   read as "server unreachable", so use a prod build; (c) a prod PWA service worker invalidates protected journeys and
   leaves route cells with "no interceptable data request", so build with the app's service-worker-disable flag;
   (d) writes fail "must stay on the declared base origin" when the API is on another port, so put a same-origin proxy in front.
+- **A `qa` crash must never read as findings.** Before Automated_QA#333, a large run crashed Node
+  (`RangeError: Invalid string length` capturing agent stdout) and exited 1, the FINDINGS code. If `--json` is
+  empty or `.verify/runs/.pending-*` is left behind, the run is invalid whatever the exit code says.
 - `--capture` screenshots are off by default and are user data; keep `.verify/` out of git.
 - Close with: verdict, exact commands + exits, source/run ids, scope and personas, cleanup, remaining gaps, artifact paths.
 
