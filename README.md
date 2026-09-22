@@ -17,8 +17,9 @@ install trees) is ignored — see `.gitignore`. This repo is the whole config su
 | `CHANGELOG.md`            | Release notes per tag                                                    |
 | `commands/.codex/`        | Codex-adapted variants + their own `sync.sh`                             |
 | `rules/`                  | Topic rules pulled into context                                          |
-| `skills/`                 | Skills. Locally-authored ones are real dirs here; 9 third-party ones are |
-|                           | symlinks into `~/.agents/skills` and dangle until reinstalled            |
+| `skills/`                 | Skills. Locally-authored ones are real dirs here and `~/.agents/skills/` |
+|                           | links to them (Codex reads `~/.agents`). Third-party installs and skills |
+|                           | with their own git repo are symlinks into `~/.agents/skills`             |
 | `agents-skill-lock.json`  | Copy of `~/.agents/.skill-lock.json` — source URL for each such skill    |
 | `plugins/*.json`          | Installed-plugin + marketplace manifests                                 |
 
@@ -58,8 +59,14 @@ After that the machine is done: every skill is a real directory under `skills/`,
 
 - Skills come from the repo, so `~/.agents/skills` is optional; `agents-skill-lock.json`
   records the upstream URL of each third-party skill for updates.
-- `checkpoint`, `mission`, `start`, `wrap` are generated into `~/.agents/skills` from
-  `commands/.codex/*.prompt` by `commands/.codex/sync.sh`, which `claude-sync` runs.
+- Every `commands/.codex/*.prompt` (start, wrap, checkpoint, mission, featuredev, map,
+  review-queue, ui-hunt, backend-edges) is generated into `~/.codex/prompts` and
+  `~/.agents/skills` by `commands/.codex/sync.sh`. These are Codex-only: Claude uses `commands/*.md`.
+- `commands/bin/link-skills.sh` (run by every `claude-sync` push/pull/adopt) keeps **one real copy
+  per skill**. Claude-authored skills live here and `~/.agents/skills/<n>` links to them; agents-owned
+  ones (lock file or own git repo) live in `~/.agents` and `skills/<n>` links there. A replaced copy
+  goes to `~/.agents/.replaced/`, and a dangling link fails the run.
+- `commands/bin/skill-collisions.py` exits 1 when one name has more than one source Claude can load.
 
 ## History
 

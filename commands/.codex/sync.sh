@@ -7,6 +7,9 @@ cd "$(dirname "$0")"
 for f in *.prompt; do
   n="${f%.prompt}"
   cp "$f" ~/.codex/prompts/"$n.md"
+  # A symlink here (e.g. link-skills pointing it at ~/.claude/skills) would make the write below land in
+  # the repo copy, which link-skills then removes, leaving Codex a dangling link (2026-09-22, featuredev/map).
+  [ -L ~/.agents/skills/"$n" ] && rm ~/.agents/skills/"$n"
   mkdir -p ~/.agents/skills/"$n"
   { echo "---";
     echo "name: $n";
@@ -15,9 +18,10 @@ for f in *.prompt; do
       wrap)       echo "description: Close a session — land all work, derive changelog/issues/board from git and gh, hand off into the PR, final gate-output status (no percentages)." ;;
       checkpoint) echo "description: Force a save-point now — commit, push, checkpoint log with verify certificates, status. Use before stepping away or when a session feels risky." ;;
       mission)    echo "description: Long-running autonomous run — phases with per-phase wraps, batched blockers, self-preservation before limits, skeptical review before final wrap." ;;
+      *) d=$(sed -n 's/^description: *//p' "../$n.md" 2>/dev/null | head -1); echo "description: ${d:-Codex variant of /$n}" ;;
     esac;
     echo "---"; echo; cat "$f"; } > ~/.agents/skills/"$n"/SKILL.md
   [ -e ~/.codex/skills/"$n" ] || ln -s ~/.agents/skills/"$n" ~/.codex/skills/"$n"
 done
 echo "prompts: $(ls ~/.codex/prompts/ | tr '\n' ' ')"
-echo "skills:  $(ls ~/.codex/skills/ | grep -E 'start|wrap|checkpoint|mission' | tr '\n' ' ')"
+echo "skills:  $(ls ~/.codex/skills/ | grep -E "$(ls *.prompt | sed 's/.prompt$//' | paste -sd'|' -)" | tr '\n' ' ')"

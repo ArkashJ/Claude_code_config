@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Jev layer for doc consolidation (pairs with the document-consolidation skill's preserve.py guard).
-Generalised from the eVillage run (2026-09-22: 184 → 53 docs, PR #677).
+Generalised from the repo C run (2026-09-22: 184 → 53 docs, PR #677).
 
   docs.py REPO docs     classify every .md: kind, area, still-guidance, filler score
   docs.py REPO claims   check each code-citing claim against the code it cites
@@ -168,8 +168,8 @@ def plan(repo, c):
     tasks += [
         {"id": "delete", "description": f"git rm {len(deletes)} docs after their owner tasks land; originals stay in git history.", "risk_notes": "guarded by preserve.py check"},
         {"id": "links", "description": "Fix incoming links to moved/deleted docs; never rewrite source citations or tests.", "risk_notes": "a Haiku link pass once rewrote citations to point at themselves"},
-        {"id": "stale-kept", "description": "In kept docs, verify each claim Jev marked contradicts against code; fix or label only the confirmed ones.", "risk_notes": "Jev contradicts was right 4 of 33 times on eVillage: triage signal only"},
-        {"id": "dropped-review", "description": "Run `docs.py dropped`, then have agents classify every queued claim LOST / FIXED / NOT_DURABLE and restore LOST.", "risk_notes": "first writing pass lost ~10% of dropped claims on eVillage (105 of 1,110)"},
+        {"id": "stale-kept", "description": "In kept docs, verify each claim Jev marked contradicts against code; fix or label only the confirmed ones.", "risk_notes": "Jev contradicts was right 4 of 33 times on repo C: triage signal only"},
+        {"id": "dropped-review", "description": "Run `docs.py dropped`, then have agents classify every queued claim LOST / FIXED / NOT_DURABLE and restore LOST.", "risk_notes": "first writing pass lost ~10% of dropped claims on repo C (105 of 1,110)"},
         {"id": "review", "description": "Independent adversarial review: every frozen source vs its owner doc, body for body.", "risk_notes": "must catch what writers missed"},
     ]
     Q = {"model": PLAN_MODEL,

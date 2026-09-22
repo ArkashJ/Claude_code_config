@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.2.0 — 2026-09-22
+
+- **One real copy per skill across Claude and Codex** (`commands/bin/link-skills.sh`, run by `claude-sync`).
+  A previous sync had duplicated every shared skill; `qa` edits never reached Codex, `document-consolidation`
+  was an orphaned submodule with no SKILL.md, and Codex variants of start/wrap/mission shadowed the Claude commands.
+- Codex prompts for `review-queue`, `ui-hunt`, `backend-edges`, `featuredev`, `map`; `sync.sh` reads descriptions
+  from the command files and never writes through a symlink.
+- `qa` skill: HISTORY/HUNT/REVIEW/DOCS modes built on Jev. Generic wrapper-hook detection, repo waivers,
+  dependency-provenance fact for draft_clobber, budget-blocked CI detection, PARITY/STATES recipes. Client names removed.
+- `skill-collisions.py` moved into `commands/bin/`.
+
 ## v1.1.1 — 2026-09-22
 - Track `CHANGELOG.md` (the root `/*` ignore rule hid it from v1.1.0).
 

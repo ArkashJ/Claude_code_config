@@ -1,14 +1,4 @@
----
-name: "map"
-description: "Explore a repo in parallel and persist ONLY the stable map — conclusions to docs, state never"
----
-
-# map
-
-Use this skill when the user asks to run the migrated source command `map`.
-
-## Command Template
-
+<!-- Codex variant of ~/.claude/commands/map.md -->
 Explore this repo comprehensively with parallel Explore agents (cheap models), then persist what
 cannot go stale. The split below is the whole point — violating it poisons every future session.
 

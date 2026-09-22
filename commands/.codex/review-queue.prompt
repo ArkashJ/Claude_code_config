@@ -1,0 +1,9 @@
+<!-- Codex variant of ~/.claude/commands/review-queue.md. Claude-only mechanics removed: Agent model tiers, SendMessage, one-message fan-out. Run lanes sequentially; scripts can run as parallel shell jobs. -->
+Use the `qa` skill (`$qa`, ~/.agents/skills/qa/SKILL.md), REVIEW mode. Target: the argument given (else the current repo) (else `gh repo view --json nameWithOwner`).
+
+1. Run `python3 ~/.claude/skills/qa/review.py <repo>`; show the table as-is.
+2. `covered` PRs: list them with the PR that contains them; offer to close (ask first).
+3. `blocked`: name the failing check per PR (`gh pr checks`), don't review.
+4. For the rest, in merge order, review each PR in merge order; depth from the table (skim / review / deep); `deep` agents start from the hot files and add a `qa` PLAN of the blast radius.
+5. Report per PR: verdict (approve / changes / block), findings with file:line, merge order. No
+   approvals, merges or closes without the user saying so.

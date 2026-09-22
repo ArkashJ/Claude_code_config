@@ -51,6 +51,14 @@ def ci_state(pr):
     return "passing" if states else "none"
 
 
+def never_ran(repo, sha):
+    """repo B 2026-09-22: every "failing" check was 'The job was not started because an Actions
+    budget is preventing further use' (0 steps), and triage called it CI failure. True when every
+    failed check-run on `sha` carries a not-started annotation."""
+    ids = gh("api", f"repos/{repo}/commits/{sha}/check-runs", "--jq", '.check_runs[] | select(.conclusion=="failure") | .id').split()
+    return bool(ids) and all("not started" in gh("api", f"repos/{repo}/check-runs/{i}/annotations", "--jq", ".[].message") for i in ids)
+
+
 def contained_in(repo, prs):
     """head of A is an ancestor of head of B (B open, bigger) → A is covered by B."""
     out = {}
@@ -108,9 +116,10 @@ def tier(pr, j, ci, covered_by):
     """Routing policy lives here, in code, where it can be read and changed."""
     if covered_by:
         return "covered", f"contained in #{covered_by}"
-    if ci == "failing" or pr["mergeable"] == "CONFLICTING":
+    if ci in ("failing", "not_run") or pr["mergeable"] == "CONFLICTING":
         after, why = tier(pr, j, "passing", None)
-        return "blocked", f"{'CI failing' if ci == 'failing' else 'merge conflict'} → then {after} ({TIERS[after][0]}): {why}"
+        cause = {"failing": "CI failing", "not_run": "CI never ran (Actions budget/runner): fix billing, not code"}.get(ci, "merge conflict")
+        return "blocked", f"{cause} → then {after} ({TIERS[after][0]}): {why}"
     size = pr["additions"] + pr["deletions"]
     r = j["risk"]
     why = []
@@ -154,6 +163,8 @@ def main():
     rows = []
     for p in prs:
         n, ci = p["number"], ci_state(p)
+        if ci == "failing" and never_ran(args.repo, p["headRefOid"]):
+            ci = "not_run"
         j = judged.get(n)
         if j or n in covered:
             t, why = tier(p, j, ci, covered.get(n))

@@ -1,14 +1,4 @@
----
-name: "featuredev"
-description: "Feature-inventory loop — enumerate every feature, test, fix, retest, with an honest done-checklist"
----
-
-# featuredev
-
-Use this skill when the user asks to run the migrated source command `featuredev`.
-
-## Command Template
-
+<!-- Codex variant of ~/.claude/commands/featuredev.md -->
 Run /start's rules if a session isn't already opened. This command adds the feature-dev loop on
 top; do not restate or renegotiate the session rules — they apply.
 

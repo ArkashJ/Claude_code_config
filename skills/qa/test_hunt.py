@@ -16,7 +16,7 @@ function useSave() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: save, onSuccess: () => qc.invalidateQueries() })
 }'''
-# pcs_frontend 2026-09-22: body scan ran past `useQueryClient()` into the next line's useMutation,
+# repo A 2026-09-22: body scan ran past `useQueryClient()` into the next line's useMutation,
 # so `qc` became a "helper" and every mutation mentioning qc counted as refreshing the cache.
 helpers = hunt.cache_helpers(src)
 assert helpers == {"a", "useInv", "refresh", "b", "useSave"}, f"cache helper set drifted: {helpers} (qc must never be a helper)"
@@ -63,3 +63,58 @@ assert not hunt.updates_cache("useMutation({ mutationFn: f }) // invalidateQueri
 assert not hunt.updates_cache("useMutation({ /* setQueryData later */ mutationFn: f })", set())
 assert hunt.updates_cache("useMutation({ onSuccess: () => qc.invalidateQueries({ queryKey: ['https://x'] }) })", set())
 print("comments ok")
+t, why = review.tier(pr, calm, "not_run", None)
+assert t == "blocked" and "never ran" in why, why
+print("not_run ok")
+
+# repo B 2026-09-22: 96% of reads went through the repo's own useApiQuery; matching TanStack
+# names only judged 7 of ~190 queries. Wrappers must be found, their own definition and inner
+# call skipped, comment mentions skipped, and `verify-ignore` sign-offs honoured.
+w = pathlib.Path(tempfile.mkdtemp()); (w / "src").mkdir()
+(w / "src/hooks.ts").write_text('''export function useApiQuery<P extends X, D = R<P>>(
+  key: QueryKey,
+  path: P,
+) {
+  return useQuery<R<P>, E, D, QueryKey>({ queryKey: key, queryFn: () => get(path) })
+}
+export const useQueuedWrite = (f) => useMutation({ mutationFn: f })
+/** Call useApiQuery(key, fn) from a component. */
+''')
+(w / "src/page.tsx").write_text('''export function Page() {
+  const a = useApiQuery(["x", id], () => get(id))
+  // verify-ignore: sync-risk (list refreshes on navigation)
+  const s = useQueuedWrite(save)
+  return null
+}
+''')
+found = list(hunt.surfaces(str(w), "src", [{"pattern": r"verify-ignore:\s*sync-risk", "checks": ["mutation_no_cache_update"]}]))
+got = sorted((x["file"], x["hook"], x["kind"]) for x in found)
+assert got == [("src/page.tsx", "useApiQuery", "query"), ("src/page.tsx", "useQueuedWrite", "mutation")], f"wrapper surfaces wrong: {got}"
+mut = next(x for x in found if x["kind"] == "mutation")
+assert mut["waived"] == ["mutation_no_cache_update"], mut["waived"]
+assert hunt.leads({"answers": {"writes_shown_data": .9}, "facts": {}, "waived": mut["waived"]}) == []
+print("wrappers ok")
+d2 = pathlib.Path(tempfile.mkdtemp()); (d2 / "src").mkdir()
+(d2 / "src/hooks.ts").write_text('''export function useMis(slug, year) {
+  return useQuery({ queryKey: keys.mis(slug, year), queryFn: () => get(slug, year, authority) })
+}
+''')
+(d2 / "src/page.tsx").write_text('export function P() { const m = useMis(slug, 2026); return null }\n')
+dom = sorted((x["file"], x["hook"]) for x in hunt.surfaces(str(d2), "src"))
+assert dom == [("src/hooks.ts", "useQuery")], f"domain hook must be judged at its inner useQuery, not its callers: {dom}"
+print("domain hooks ok")
+assert not hunt.passes_through("({ queryKey: id ? usersKeys.detail(id) : usersKeys.detail('_none'), queryFn: () => getUser(id) })", "id"), "repo A useUser is a domain hook, not a wrapper"
+assert hunt.passes_through("({ networkMode: 'offlineFirst', mutationFn: async (v) => { const r = await options.write(v); return r } })", "options")
+assert hunt.passes_through("({ queryKey: key, queryFn: () => getApi(path) })", "key")
+print("passthrough ok")
+
+# repo B 2026-09-22: pass-through query data can't be a strong draft_clobber lead (structural sharing);
+# a dependency rebuilt in render (contact-workspace.tsx:837 inline `{mode, contact}`) can.
+ctx = "const input = { mode, contact }\nconst user = query.data\nconst rows = items.map(f)\n"
+assert hunt.dep_kinds("useEffect(() => { setDraft(input) }, [input])", ctx) == {"input": "rebuilt"}
+assert hunt.dep_kinds("useEffect(() => { setDraft(user) }, [user, open])", ctx) == {"user": "passthrough", "open": "passthrough"}
+assert hunt.dep_kinds("useEffect(() => { f() }, [rows])", ctx) == {"rows": "rebuilt"}
+hi = {"overwrites_user_draft": .9, "reruns_on_refetch": .9}
+assert hunt.leads({"answers": hi, "facts": {"dependency_kinds": {"user": "passthrough"}}}) == [("draft_clobber", 0.69)]
+assert hunt.leads({"answers": hi, "facts": {"dependency_kinds": {"input": "rebuilt"}}}) == [("draft_clobber", 0.9)]
+print("dep kinds ok")

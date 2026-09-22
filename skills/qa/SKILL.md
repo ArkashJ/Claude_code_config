@@ -57,7 +57,7 @@ write code, or count. So code enumerates, Jev screens, Claude proves.
 0. **Find where this repo's bugs escape before choosing what to hunt.**
    `python3 ~/.claude/skills/qa/history.py <repo>` sorts every `fix` commit into a surface ×
    mechanism pair with Jev (386 commits ≈ 1 minute, a few cents). Aim at the top rows, not at the
-   surfaces you assume. On pcs_frontend, hooks/TanStack were only ~25 of 301 user-facing
+   surfaces you assume. On repo A, hooks/TanStack were only ~25 of 301 user-facing
    fixes. Permissions (38), API contract (39), auth/session (29) and loading/empty/error
    states (29) were the real escapes. Exact cross-checks (frontend gate vs backend requirement,
    wire enum vs UI mapping) belong in code; Jev handles the judgments that code can't make.
@@ -65,7 +65,7 @@ write code, or count. So code enumerates, Jev screens, Claude proves.
    re-asks what a linter or script already enforces.
 2. **Write or refresh `<repo>/.qa/invariants.json`** from the repo's rules (CLAUDE.md hard
    rules, `docs/specs/`, ADRs). Keep only rules that need judgment; mechanical rules belong
-   in a grep or script. Shape (see `pcs_frontend/.qa/invariants.json`):
+   in a grep or script. Shape (see `a repo's .qa/invariants.json`):
    `{id, rule, kinds:[effect|query|mutation], hooks?, files?, when?, when_scope?, question, true?, false?}`.
    `when` is a regex prefilter: cheaper and fewer false positives.
 3. **Run** `python3 ~/.claude/skills/qa/hunt.py <repo> [--src src] [--limit 20]`.
@@ -73,7 +73,13 @@ write code, or count. So code enumerates, Jev screens, Claude proves.
    It exits 1 if any request failed. Report the surface count, the judged count and the lead count, never a sample.
 4. **Prove or dismiss the top leads** by reading the code: a failing test, a repro, or a
    one-line reason it is fine. A lead is a place to look, not a finding.
-5. **Tune when dismissals cluster on one check.** Jev reads literally: the explanation you
+5. **Judge a rule where it lives.** HUNT judges hook call sites. Rules about what a *component renders*
+   (a control shown without its permission, a failed read shown as empty, money shown without a gate)
+   can't be decided from hook files: repo B asked one 184 times with 0 leads, and the verifier said
+   "not determinable". Leave those to PARITY/STATES, or judge them at the component that consumes the hook.
+6. **An agent verdict isn't ground truth.** Verifiers make confident wrong claims (one said `usePushSegment`
+   wasn't queued; it was). P1s, and cases where two agents contradict each other, get an independent read before reporting.
+7. **Tune when dismissals cluster on one check.** Jev reads literally: the explanation you
    would give for "why this isn't a bug" is the missing `false` criterion. Add it, re-run.
 
 Built-in checks. Code computes facts (for example, whether a mutation touches the query
@@ -85,7 +91,7 @@ cache) and Jev only judges meaning:
 | query | key_missing_input, runs_without_param |
 | mutation | mutation_no_cache_update (Jev: writes shown data × code: no cache update), optimistic_no_rollback |
 
-**Non-React stacks** (Benmore/DOM-string apps; eVillage 2026-09-22): hunt.py's extractors don't
+**Non-React stacks** (Benmore/DOM-string apps; repo C 2026-09-22): hunt.py's extractors don't
 apply. At 40k-char module chunks, 3 of 4 Jev checks returned ≈0 leads while 59–71 chunks sat
 in the review band. Treat "no lead" at that chunk size as *unmeasured*, and chunk per
 function with its owning component. Code facts carried more signal there: `Promise.all([...])`
@@ -102,7 +108,7 @@ Extending HUNT, with patterns from the TypeSafe cookbooks. Add them when a repo 
 
 ## Two exact audits (agent recipes: code, not Jev; history ranks them first on most repos)
 
-**PARITY: frontend gate vs backend permission.** pcs_frontend 2026-09-22: 9 verified, 1 P1. This is the #1 escaped class there.
+**PARITY: frontend gate vs backend permission.** repo A 2026-09-22: 9 verified, 1 P1. This is the #1 escaped class there.
 1. Backend: import each service's real app (FastAPI: `app.main`) and walk `app.routes`. For each route,
    resolve the permission from the dependency and body AST, including constants and closures. Count gated / ungated / unresolved.
 2. Mapping: run the real gateway app with auth overridden and the outbound HTTP client stubbed, and send every
@@ -121,7 +127,10 @@ Delete the per-service virtualenvs afterwards (14 of them = 1.7 GB).
 (1) suspense with no pending/error boundary · (2) `useQuery` whose error is never read, or `isError`
 without a `!data` check (a failed refetch wipes loaded data) · (3) polls that keep running on error or after a terminal state ·
 (4) an empty array that renders nothing · (5) **fail-open**: a default/`??`/ternary/`z.default(0)` that shows a
-positive badge for unknown or degraded data. Pattern 5 held the P1s. Compare against sibling pages:
+positive badge for unknown or degraded data. Pattern 5 held the P1s. **Reconcile the counts:**
+candidates == verified + dismissed + unmeasured for each pattern, or the report is invalid. A repo B
+agent silently adjudicated 27 of 81 and its grep missed generics (`useQueuedWrite<T>(`); only
+reconciling the counts caught it. Compare against sibling pages:
 the CCD page had the guard (`coverageKnown`) that the SC page lacked.
 
 ## REVIEW: the PR queue, and which model reviews what
@@ -142,7 +151,7 @@ a risk Score. The PR takes its worst chunk, and the files behind that chunk are 
 
 Run the reviews in parallel, one agent per PR, with `model` set from the table, in merge order
 (stack parents first, then low risk, few overlaps). The deep reviewer starts from the hot files.
-First run, Profectus (2026-09-22): 16 open PRs → 12 already contained in #1525, 4 need action,
+First run, repo B (2026-09-22): 16 open PRs → 12 already contained in #1525, 4 need action,
 and #1525 (70k lines) goes deep once CI is green.
 
 **Model routing for any workflow** (same principle: code decides from facts, Jev from judgment):
@@ -156,7 +165,7 @@ The `document-consolidation` skill owns the method and the `preserve.py` guard. 
 the Jev layer. Write `<repo>/.qa/docs.json` (`goal`, `owners` {path: scope}, `risk`
 {path: note}, `code_dirs`, `exclude`), then run `python3 ~/.claude/skills/qa/docs.py <repo>`
 with each of these in turn: `docs` → `claims` → `decide` → `plan`. After the writers finish, run `dropped`.
-eVillage (2026-09-22): 184 → 53 docs, 4,707 claims checked, PR #677. What that run taught, now built into the tool:
+repo C (2026-09-22): 184 → 53 docs, 4,707 claims checked, PR #677. What that run taught, now built into the tool:
 - **"Contradicts" from Jev is triage, not a deletion signal.** It was right only 4 of 33 times
   (external APIs, framework behaviour, and symbols outside the grep scope all looked "missing").
   Every deletion rests on an agent reading the code.
@@ -211,6 +220,11 @@ qa run APP --base URL --once | --hours N         # sustained QA, only with an ex
 - Declarations (`verify.roles.json`, `verify.crud.json`, `verify.read-only.json`,
   `verify.auth-launcher.mjs`) only when a named gap asks for one. Never fabricate selectors,
   identities or fixtures. Writing the launcher once is the highest-value declaration.
+- **Next.js app + separate API origin (repo B 2026-09-22 hit these in order; check them all before the first run):**
+  (a) the identity oracle is off unless the web server runs with `QA_IDENTITY_ORACLE=true`; (b) dev-server compiles over 40 s
+  read as "server unreachable", so use a prod build; (c) a prod PWA service worker invalidates protected journeys and
+  leaves route cells with "no interceptable data request", so build with the app's service-worker-disable flag;
+  (d) writes fail "must stay on the declared base origin" when the API is on another port, so put a same-origin proxy in front.
 - `--capture` screenshots are off by default and are user data; keep `.verify/` out of git.
 - Close with: verdict, exact commands + exits, source/run ids, scope and personas, cleanup, remaining gaps, artifact paths.
 
@@ -223,7 +237,7 @@ surfaces that should refresh.
 0.43–0.53 over 15 identical runs); below 0.3 is dropped. `.qa/known-bugs.json` holds confirmed bugs, and every
 run reports recall against it, so tuning never silently loses a real catch.
 
-**Pilot result, pcs_frontend (2026-09-22):** first pass 592 leads at 0.5. Four agents
+**Pilot result, repo A (2026-09-22):** first pass 592 leads at 0.5. Four agents
 checked 76 sampled leads: 6 real bugs (1 P1, 2 P2, 3 P3); `runs_without_param` 0/9 and
 `derived_state` 0/9 were noise. The broad checks were replaced with composed pairs
 (`draft_clobber`, `url_sync_one_way`) and code facts (helper-aware cache detection).

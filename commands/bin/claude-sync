@@ -18,6 +18,7 @@ case "${1:-push}" in
   pull)
     # --autostash: uncommitted local edits ride along instead of blocking the pull.
     git -C "$CFG" pull -q --rebase --autostash
+    sh "$CFG/commands/bin/link-skills.sh" >/dev/null || echo "claude-sync: link-skills failed (skills may be duplicated)" >&2
     exit 0
     ;;
   adopt)
@@ -79,6 +80,7 @@ PY
         fi
       done
     fi
+    sh "$CFG/commands/bin/link-skills.sh" || echo "adopt:  link-skills failed" >&2
     echo "adopt:  $CFG now tracks $REMOTE at $(git -C "$CFG" rev-parse --short HEAD)"
     exit 0
     ;;
@@ -119,6 +121,9 @@ fi
 if [ -d "$HOME/.codex/prompts" ]; then
   sh "$CFG/commands/.codex/sync.sh" >/dev/null
 fi
+
+# One real copy per skill, the other agent links to it (see link-skills.sh for the incident).
+sh "$CFG/commands/bin/link-skills.sh" || echo "claude-sync: link-skills failed (skills may be duplicated)" >&2
 
 # --- push ~/.claude
 
