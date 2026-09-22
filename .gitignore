@@ -30,3 +30,6 @@ settings.local.json
 .DS_Store
 *.doctor-bak
 *.doctor-backup-*
+
+# claude.ai-synced skills are per-account runtime state.
+/skills/synced/

@@ -50,6 +50,12 @@
         "source": "github",
         "repo": "typesafe-ai/skills"
       }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
     }
   },
   "modelSettings": {

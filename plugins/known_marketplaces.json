@@ -5,7 +5,7 @@
       "repo": "anthropics/claude-plugins-official"
     },
     "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/claude-plugins-official",
-    "lastUpdated": "2026-09-22T17:49:25.509Z"
+    "lastUpdated": "2026-09-22T18:27:48.529Z"
   },
   "ponytail": {
     "source": {
@@ -13,7 +13,7 @@
       "repo": "DietrichGebert/ponytail"
     },
     "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/ponytail",
-    "lastUpdated": "2026-09-16T15:07:20.473Z"
+    "lastUpdated": "2026-09-22T18:27:47.715Z"
   },
   "typesafe-ai": {
     "source": {
@@ -21,6 +21,6 @@
       "repo": "typesafe-ai/skills"
     },
     "installLocation": "/Users/arkashjain/.claude/plugins/marketplaces/typesafe-ai",
-    "lastUpdated": "2026-09-19T18:23:06.905Z"
+    "lastUpdated": "2026-09-22T18:27:51.351Z"
   }
 }
