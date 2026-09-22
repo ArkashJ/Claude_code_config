@@ -1,71 +1,14 @@
 {
   "version": 2,
   "plugins": {
-    "code-review@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/code-review/76c85b7366c8",
-        "version": "76c85b7366c8",
-        "installedAt": "2026-06-22T01:42:21.958Z",
-        "lastUpdated": "2026-09-16T02:31:49.913Z",
-        "gitCommitSha": "638b2e275936a5dc7131d8b54dee4dfee99d1aa8"
-      }
-    ],
-    "typescript-lsp@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/typescript-lsp/1.0.0",
-        "version": "1.0.0",
-        "installedAt": "2026-06-22T01:42:46.383Z",
-        "lastUpdated": "2026-06-22T01:42:46.383Z"
-      }
-    ],
-    "pr-review-toolkit@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/76c85b7366c8",
-        "version": "76c85b7366c8",
-        "installedAt": "2026-06-22T01:42:51.603Z",
-        "lastUpdated": "2026-09-16T02:31:49.913Z",
-        "gitCommitSha": "638b2e275936a5dc7131d8b54dee4dfee99d1aa8"
-      }
-    ],
-    "gopls-lsp@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0",
-        "version": "1.0.0",
-        "installedAt": "2026-06-22T01:42:56.490Z",
-        "lastUpdated": "2026-06-22T01:42:56.490Z"
-      }
-    ],
-    "pyright-lsp@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pyright-lsp/1.0.0",
-        "version": "1.0.0",
-        "installedAt": "2026-06-22T01:43:02.124Z",
-        "lastUpdated": "2026-06-22T01:43:02.124Z"
-      }
-    ],
-    "vanta@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/vanta/1.0.0",
-        "version": "1.0.0",
-        "installedAt": "2026-07-12T14:58:02.611Z",
-        "lastUpdated": "2026-07-12T14:58:02.611Z",
-        "gitCommitSha": "345d86b55faa649e955b7ea5569cf52d8425c2d5"
-      }
-    ],
     "ponytail@ponytail": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/ponytail/ponytail/4.9.0",
-        "version": "4.9.0",
-        "installedAt": "2026-07-16T16:08:55.039Z",
-        "lastUpdated": "2026-09-02T15:10:12.504Z",
-        "gitCommitSha": "2ed6c52c9d7e5e56942508591085fd45dea277d3"
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/ponytail/ponytail/4.10.0",
+        "version": "4.10.0",
+        "installedAt": "2026-09-16T15:07:31.232Z",
+        "lastUpdated": "2026-09-16T15:07:31.232Z",
+        "gitCommitSha": "e3ba2aa6f1e6f0bc4d69eb09c9f0d0a93af56156"
       }
     ],
     "aws-core@claude-plugins-official": [
@@ -73,28 +16,49 @@
         "scope": "user",
         "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/aws-core/1.1.0",
         "version": "1.1.0",
-        "installedAt": "2026-08-19T17:07:49.923Z",
-        "lastUpdated": "2026-08-19T17:07:49.923Z",
-        "gitCommitSha": "651a156ef7a92f380a9494978e223ff555102eac"
+        "installedAt": "2026-09-18T14:11:21.580Z",
+        "lastUpdated": "2026-09-18T14:11:21.580Z",
+        "gitCommitSha": "7fcb1da17abba610d7becc973c2141b40412e02c"
       }
     ],
-    "playwright@claude-plugins-official": [
+    "pr-review-toolkit@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/playwright/76c85b7366c8",
-        "version": "76c85b7366c8",
-        "installedAt": "2026-09-09T18:00:38.961Z",
-        "lastUpdated": "2026-09-16T02:31:49.909Z"
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/db467cc56673",
+        "version": "db467cc56673",
+        "installedAt": "2026-09-18T19:59:18.701Z",
+        "lastUpdated": "2026-09-22T17:49:25.558Z",
+        "gitCommitSha": "db467cc56673fc963ca418b4165c688dfbe77007"
       }
     ],
-    "mattpocock-skills@claude-plugins-official": [
+    "typesafe@typesafe-ai": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/mattpocock-skills/1.2.3",
-        "version": "1.2.3",
-        "installedAt": "2026-09-16T01:19:19.722Z",
-        "lastUpdated": "2026-09-16T01:19:19.722Z",
-        "gitCommitSha": "3cca18b368ae95cdbdebbff572ccafa662551015"
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/typesafe-ai/typesafe/0.5.7",
+        "version": "0.5.7",
+        "installedAt": "2026-09-19T18:23:11.623Z",
+        "lastUpdated": "2026-09-19T18:23:11.623Z",
+        "gitCommitSha": "65a39f393687675ce170e6094757de20370365b9"
+      }
+    ],
+    "gopls-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-09-19T18:54:23.534Z",
+        "lastUpdated": "2026-09-19T18:54:23.534Z",
+        "gitCommitSha": "c447c3207a425bc4e2a0d068435f64b0477ae981"
+      }
+    ],
+    "typescript-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/typescript-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-09-19T18:54:28.925Z",
+        "lastUpdated": "2026-09-19T18:54:28.925Z",
+        "gitCommitSha": "c447c3207a425bc4e2a0d068435f64b0477ae981"
       }
     ]
   }

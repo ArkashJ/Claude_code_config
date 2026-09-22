@@ -1,8 +1,3 @@
----
-name: qa-plan
-description: Use when generating QA test plans from verified code changes for a diff, PR, branch, module, release candidate, bug fix, feature, or refactor; context maps, dependency graphs, adversarial review notes, and fix recommendations are included only as QA-plan support.
----
-
 # QA Plan Generator
 
 Generate audit-grade QA plans from real code changes. The plan must be evidence-first and graph-aware: every risk, test case, regression, caveat, diagram edge, fix recommendation, and exit criterion traces back to verified source context or is explicitly marked as a low-confidence inference.
@@ -198,34 +193,7 @@ Diagram rules:
 
 Create one risk row per meaningful blast-radius area. Score risk as `Likelihood (1-5) x Impact (1-5)`.
 
-Likelihood factors:
-
-| Factor | Low: 1 | Medium: 3 | High: 5 |
-| ------ | ------ | --------- | ------- |
-| Change size | tiny rename or copy change | localized logic change | broad/new flow |
-| Complexity | mechanical | conditional logic | new algorithm, async path, migration, state machine |
-| Coupling | one file | 2-3 modules | 4+ modules or external integration |
-| Historical risk | no signal | known fragile area | repeated bugs, incidents, or TODO warnings |
-| Evidence confidence | high | medium | low or partly inferred |
-
-Impact factors:
-
-| Factor | Low: 1 | Medium: 3 | High: 5 |
-| ------ | ------ | --------- | ------- |
-| User effect | cosmetic or internal-only | degraded workflow | broken core workflow or data loss |
-| Data integrity | read-only | validated write | destructive/irreversible write |
-| Security/privacy | no sensitive data | scoped sensitive data | auth, tenant, permission, secrets, PII |
-| Financial/compliance | no regulated output | reporting/export | billing, audit record, legal/compliance |
-| Recovery | easy rollback | manual cleanup | hard correction or customer-visible fallout |
-
-Risk bands:
-
-| Score | Coverage |
-| ----- | -------- |
-| 20-25 | Exhaustive: happy path, main error paths, boundaries, permissions, data integrity, and regression checks |
-| 12-19 | Heavy: happy path, error path, representative edge case, and direct integration check |
-| 6-11 | Standard: happy path and one negative or regression check |
-| 1-5 | Smoke: smoke checklist item only unless evidence shows a known hotspot |
+Use the shared likelihood × impact tables and coverage bands in `SKILL.md` (§ Risk scoring). Score each area there, then fill the table below.
 
 Risk table format:
 

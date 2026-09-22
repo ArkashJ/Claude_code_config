@@ -1,9 +1,9 @@
 ---
-name: "source-command-featuredev"
+name: "featuredev"
 description: "Feature-inventory loop — enumerate every feature, test, fix, retest, with an honest done-checklist"
 ---
 
-# source-command-featuredev
+# featuredev
 
 Use this skill when the user asks to run the migrated source command `featuredev`.
 

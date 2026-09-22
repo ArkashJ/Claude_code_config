@@ -1,9 +1,9 @@
 ---
-name: "source-command-map"
+name: "map"
 description: "Explore a repo in parallel and persist ONLY the stable map — conclusions to docs, state never"
 ---
 
-# source-command-map
+# map
 
 Use this skill when the user asks to run the migrated source command `map`.
 

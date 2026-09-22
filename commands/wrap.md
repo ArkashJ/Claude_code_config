@@ -1,5 +1,5 @@
 ---
-description: Close a session — commit, derive all bookkeeping from git/gh, hand off into the PR
+description: Close a session — land all work, derive changelog/issues/board from git and gh, hand off into the PR, final gate-output status (no percentages)
 ---
 
 Close this session. The rule for every artifact below: **derive it from the authoritative
@@ -49,7 +49,7 @@ with a recorded failing command/response attached; otherwise it is "not attempte
 If code changed any surface that docs describe (API routes, schemas, CLI flags, env vars): diff
 docs against the generated spec or the code itself, fix drift, and flag—don't silently fix—any
 doc claim that was already wrong before this session. Never add mutable state to auto-loaded
-files (CLAUDE.md and kin); those carry only invariants and pointers to commands.
+files (AGENTS.md and kin); those carry only invariants and pointers to commands.
 
 A link checker is not a claim checker: `verify.docs-links` passes green on a roadmap with a
 wrong issue count, a stale CI banner and a hostname that now 502s (33ecb76f). Any doc that
@@ -60,7 +60,7 @@ caught committed client-facing DNS values disagreeing with live infra that way).
 ## 6b. Repo hygiene — run the script, do not re-derive it
 
 ```bash
-~/.claude/commands/bin/repo-hygiene.sh          # reports; exit 1 = something is stale
+~/.Codex/commands/bin/repo-hygiene.sh          # reports; exit 1 = something is stale
 ```
 
 Then act on what it prints: prune worktrees, delete branches whose PR is merged, commit

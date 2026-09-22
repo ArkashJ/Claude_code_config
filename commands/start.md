@@ -1,5 +1,5 @@
 ---
-description: Open a session — preflight, enumerate sources, set the working rules
+description: Open a session — preflight (git/gh/PATH), enumerate sources with counts, set the working rules (commit/push/checkpoint continuously, verify at source, volunteered status)
 ---
 
 Start this session properly. These rules encode corrections that recurred across 21 harvested
@@ -25,10 +25,10 @@ where it stopped, and ask whether to resume it or start fresh.
 Then run the hygiene report and act on what it prints:
 
 ```bash
-~/.claude/commands/bin/repo-hygiene.sh          # exit 1 = something is stale
+~/.Codex/commands/bin/repo-hygiene.sh          # exit 1 = something is stale
 ```
 
-Inherited mess is a session-open problem, not a session-close one: CLAUDE.md files inherited
+Inherited mess is a session-open problem, not a session-close one: AGENTS.md files inherited
 uncommitted from a prior session cost a triage turn (39771011), a forgotten worktree owning
 `main` blocked a checkout mid-run (ca8cacbc), and a polluted main checkout forced an entire
 worktree/branch/PR cycle for a one-file fix (e7665ec7). The script deletes nothing —
@@ -87,7 +87,7 @@ haiku teams", "use fable", "use the qa cli", "use superpowers / impeccable / des
 The skills were installed the whole time. So, as part of the enumeration, list the installed
 skills and commands that intersect the task and say which you will invoke and when:
 
-- frontend or "is it working" → `frontend-verify` / the `qa` CLI (marathon mode for hours-long QA)
+- frontend or "is it working" → the `qa` skill (MEASURE = the `qa` CLI, marathon mode for hours-long QA; HUNT = Jev screen over every hook; PLAN = QA plan from a diff)
 - UI look, states, copy → `impeccable`, `ui-stress`, `design-director`
 - unfamiliar ground → `/map`; feature loops → `/featuredev`; PR review → `/investigate`
 - anything over ~an hour or "overnight" → `/mission` (not a plan you hand back)
@@ -169,7 +169,7 @@ line; do not silently drop the work.
 
 ## 8. Ending a turn
 
-A Stop hook (`~/.claude/commands/hooks/block-open-ended-stop.sh`) refuses to end a turn whose
+A Stop hook (`~/.Codex/commands/hooks/block-open-ended-stop.sh`) refuses to end a turn whose
 reply defers work with no accepted reason, or claims done on a dirty tree. Accepted reasons:
 `blocked: <failing command>`, `not attempted`, `human decision` (rule 7 actions, each one
 approved command away with a recommendation). "Next steps" you are allowed to take are not

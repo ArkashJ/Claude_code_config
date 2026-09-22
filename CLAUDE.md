@@ -15,7 +15,9 @@ This is the most frequently repeated correction across every session ever harves
 sessions**, extracted independently under five different names. The former prefix-only block did
 not always fire: 151 sleep-bearing commands produced only 15 blocks. The current PreToolUse hook
 blocks any `sleep\s+\d` token anywhere in the command, including compound, `nohup`, and loop forms.
-Treat that as enforced only while the hook's adjacent self-test remains green.
+Treat that as enforced only while the hook's adjacent self-test remains green
+(`~/.claude/hooks/guard-bash.sh`, self-test `~/.claude/hooks/guard-bash.test.sh`; registered
+in `~/.claude/settings.json` on 2026-09-20 — before that date it was documented but not configured).
 
 Related, same family: an inner `timeout 900` is decorative when it exceeds the Bash tool's own
 cap — the call dies at the tool's limit, not yours (592c8a27: two dead 2-minute waits and a

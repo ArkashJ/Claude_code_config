@@ -12,7 +12,9 @@ install trees) is ignored — see `.gitignore`. This repo is the whole config su
 |                           | public, and auto-mode is only honored from `~/.claude/settings.json`)    |
 | `commands/*.md`           | Slash commands (`/start`, `/wrap`, `/mission`, …)                        |
 | `commands/bin/`           | `claude-sync`, `sync-skills.sh`, `repo-hygiene.sh`, `resolve-plan.sh`    |
-| `commands/hooks/`         | `session-preflight.sh`, `block-wasteful-shell.sh` (wired in settings)    |
+| `hooks/`                  | `guard-bash.sh` PreToolUse guard (wired in settings) + its self-test     |
+| `commands/hooks/`         | `session-preflight.sh`, `block-wasteful-shell.sh` (legacy, not wired)    |
+| `CHANGELOG.md`            | Release notes per tag                                                    |
 | `commands/.codex/`        | Codex-adapted variants + their own `sync.sh`                             |
 | `rules/`                  | Topic rules pulled into context                                          |
 | `skills/`                 | Skills. Locally-authored ones are real dirs here; 9 third-party ones are |
@@ -25,9 +27,10 @@ install trees) is ignored — see `.gitignore`. This repo is the whole config su
 ## Sync
 
 ```sh
-claude-sync        # commit + push this machine's config, and publish
+claude-sync        # pull, then commit + push this machine's config, and publish
                    # commands/*.md to arkashj.com/skills
-claude-sync pull   # fast-forward this machine from the remote
+claude-sync pull   # fast-forward this machine from the remote (also runs on every
+                   # session start via the SessionStart hook)
 claude-sync adopt  # one-time: point an existing ~/.claude at this remote
 ```
 
@@ -45,21 +48,16 @@ is gitignored and survives untouched; the tracked files it *would* overwrite are
 `~/claude-config-backup-<timestamp>/` first. It refuses to run if `~/.claude` is already a
 git repo — that case is `claude-sync pull`.
 
-The default remote is SSH. On a machine with no key loaded yet, prefix the command with
-`REMOTE=https://github.com/ArkashJ/Claude_code_config.git` (read-only; `git -C ~/.claude
-remote set-url origin git@github.com:ArkashJ/Claude_code_config.git` once the key is in
-place). The same variable adopts a different fork.
+It uses SSH when a GitHub key works and falls back to read-only HTTPS otherwise (switch
+later with `git -C ~/.claude remote set-url origin git@github.com:ArkashJ/Claude_code_config.git`).
+`REMOTE=<url>` adopts a different fork. It also links `~/.local/bin/claude-sync` and, if the
+`claude` CLI is installed, reinstalls every marketplace and plugin from `plugins/*.json`.
 
-Two things it cannot restore: `plugins/` ships manifests only (reinstall the plugins), and
-the third-party skills are symlinks into `~/.agents/skills` that dangle until reinstalled
-from the URLs in `agents-skill-lock.json`.
+After that the machine is done: every skill is a real directory under `skills/`, and
+`settings.json` is created from the example (fill in `<AWS_ACCOUNT_ID>` if you use it).
 
-Then reinstall the 9 third-party skills listed in `agents-skill-lock.json` to resolve
-the dangling symlinks under `skills/`. Everything else is already in this repo:
-
-- Locally-authored skills (`harvest`, `benmore-cli`, `design-director`, `qa_skill`,
-  `auditable-agentic-extraction`) are real directories under `skills/`. `~/.agents/skills`
-  symlinks *into* here, so there is one copy and it cannot drift.
+- Skills come from the repo, so `~/.agents/skills` is optional; `agents-skill-lock.json`
+  records the upstream URL of each third-party skill for updates.
 - `checkpoint`, `mission`, `start`, `wrap` are generated into `~/.agents/skills` from
   `commands/.codex/*.prompt` by `commands/.codex/sync.sh`, which `claude-sync` runs.
 

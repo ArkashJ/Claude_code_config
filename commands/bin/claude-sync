@@ -16,7 +16,8 @@ SITE="${SITE:-$HOME/Developer/personal/Personal-Website}"
 
 case "${1:-push}" in
   pull)
-    git -C "$CFG" pull --rebase
+    # --autostash: uncommitted local edits ride along instead of blocking the pull.
+    git -C "$CFG" pull -q --rebase --autostash
     exit 0
     ;;
   adopt)
@@ -24,7 +25,12 @@ case "${1:-push}" in
     # (transcripts, caches, session locks) and is invisible to git, so it survives this
     # untouched. Only TRACKED paths get overwritten -- back those up first, because on a
     # machine that already had config they are the hand-written ones.
-    REMOTE="${REMOTE:-git@github.com:ArkashJ/Claude_code_config.git}"
+    # SSH when a key works, else read-only HTTPS -- a fresh machine usually has no key yet.
+    if [ -z "${REMOTE:-}" ]; then
+      REMOTE=git@github.com:ArkashJ/Claude_code_config.git
+      GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" git ls-remote "$REMOTE" >/dev/null 2>&1 ||
+        REMOTE=https://github.com/ArkashJ/Claude_code_config.git
+    fi
     BAK="$HOME/claude-config-backup-$(date '+%Y%m%d-%H%M%S')"
     if [ -d "$CFG/.git" ]; then
       echo "claude-sync: $CFG is already a git repo -- use 'claude-sync pull'" >&2
@@ -49,13 +55,31 @@ case "${1:-push}" in
       chmod 600 "$CFG/settings.json"
       echo "adopt:  settings.json created from the example -- fill in <AWS_ACCOUNT_ID>"
     fi
-    if [ -d "$HOME/.local/bin" ] && [ ! -e "$HOME/.local/bin/claude-sync" ]; then
-      ln -s "$CFG/commands/bin/claude-sync" "$HOME/.local/bin/claude-sync"
-      echo "adopt:  linked ~/.local/bin/claude-sync"
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$CFG/commands/bin/claude-sync" "$HOME/.local/bin/claude-sync"
+    echo "adopt:  linked ~/.local/bin/claude-sync"
+    case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "adopt:  add ~/.local/bin to PATH" ;; esac
+    # plugins/ ships manifests only; reinstall from them when the claude CLI is present.
+    if command -v claude >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+      python3 - "$CFG/plugins" <<'PY' |
+import json, sys
+d = sys.argv[1]
+for m in json.load(open(d + "/known_marketplaces.json")).values():
+    if m.get("source", {}).get("repo"): print("marketplace", m["source"]["repo"])
+for p in json.load(open(d + "/installed_plugins.json")).get("plugins", {}):
+    print("plugin", p)
+PY
+      while read -r kind arg; do
+        if [ "$kind" = marketplace ]; then
+          claude plugin marketplace add "$arg" >/dev/null 2>&1 || true
+        elif claude plugin install "$arg" >/dev/null 2>&1; then
+          echo "adopt:  plugin $arg"
+        else
+          echo "adopt:  plugin $arg FAILED -- retry: claude plugin install $arg"
+        fi
+      done
     fi
     echo "adopt:  $CFG now tracks $REMOTE at $(git -C "$CFG" rev-parse --short HEAD)"
-    echo "        plugins/ ships manifests only -- reinstall them; skills symlinked into"
-    echo "        ~/.agents/skills dangle until reinstalled (sources: agents-skill-lock.json)"
     exit 0
     ;;
   push) ;;
@@ -80,8 +104,11 @@ if [ -f "$CFG/settings.json" ]; then
   tmp=$(mktemp)
   # Match the shape, not the literal — hardcoding the id here would republish the very
   # thing being redacted. AWS account ids are always exactly 12 digits.
-  sed -E 's/[0-9]{12}/<AWS_ACCOUNT_ID>/g' "$CFG/settings.json" > "$tmp"
-  if python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$tmp" 2>/dev/null; then
+  # $HOME -> ~ so hook paths resolve for any user on any machine.
+  sed -E -e 's/[0-9]{12}/<AWS_ACCOUNT_ID>/g' -e "s#$HOME/#~/#g" "$CFG/settings.json" > "$tmp"
+  # autoMode describes whichever client repo this machine last set it up for (org names,
+  # prod domains) -- never publish it. Parsing here doubles as the validity check.
+  if python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d.pop("autoMode",None); json.dump(d,open(sys.argv[1],"w"),indent=2)' "$tmp" 2>/dev/null; then
     mv "$tmp" "$CFG/settings.example.json"
   else
     rm -f "$tmp"
@@ -95,6 +122,9 @@ fi
 
 # --- push ~/.claude
 
+# Take the other machines' changes first so the push is never rejected.
+git -C "$CFG" pull -q --rebase --autostash ||
+  { echo "claude-sync: pull failed -- resolve in $CFG, then rerun" >&2; exit 1; }
 git -C "$CFG" add -A
 if git -C "$CFG" diff --cached --quiet; then
   echo "config: already in sync"
