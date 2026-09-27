@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.3.0 — 2026-09-27
+
+- **harvest reads the transcript, not memory.** `skills/harvest/signals.py` has Jev judge every human turn
+  (correction, re-ask, doubted claim, wants depth) and route every ask to the command that proves it. Added
+  because each studied harvest was followed by "are you sure thats ALL YOU LEARNT???". Harvest now ends with
+  `acted X of N`.
+- **`--related` carries a session's fix across repos.** It finds code under `~/Developer` and `~/Benmore` that
+  shares the session's identifiers, and Jev judges whether it has the same concern, could reuse the fix, or has the same gap.
+- **wrap proves asks with commands**: `repo-hygiene.sh --landed` ends with a computed `SAFE TO END` line.
+  The Codex `wrap` is generated from `wrap.md`, and `sync.sh` fails on section drift. The broken `~/.Codex/commands` paths are fixed.
+- qa: Noul answers read as `{noul}`, a named User-Agent (Cloudflare 1010), conflicting PRs re-tiered correctly.
+
 ## v1.2.0 — 2026-09-22
 
 - **One real copy per skill across Claude and Codex** (`commands/bin/link-skills.sh`, run by `claude-sync`).
