@@ -228,7 +228,7 @@ def main():
     turns = [t for t in red["turns"] if not t["human"].startswith("[invoked ")]
     if not turns:
         sys.exit(print(f"0 human turns read from {path} by {cmd[-1]}: unable to measure (Codex needs extractor > 1.0.0)", file=sys.stderr) or 2)
-    print(f"transcript ({'codex' if '/.codex/' in str(path) else 'claude'}): {path}\nsession: {red['meta'].get('session')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)}")
+    print(f"transcript ({'codex' if '/.codex/' in str(path) else 'claude'}): {path}\nsession: {red['meta'].get('session')}  start: {red['meta'].get('start')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)}")
     key = api_key()
 
     def judge(i):
@@ -275,10 +275,10 @@ def main():
     for a in asks:
         print(f"  t{a['turn']:<3} {a['kind']:<12} conf={a['conf']}  {a['human']!r}")
     out = Path(tempfile.gettempdir()) / f"harvest-signals-{red['meta'].get('session') or path.stem}.json"
-    out.write_text(json.dumps({"transcript": str(path), "signals": signals, "asks": asks, "tool_failures": dict(fails),
+    out.write_text(json.dumps({"transcript": str(path), "start": red["meta"].get("start"), "signals": signals, "asks": asks, "tool_failures": dict(fails),
                                "jev": {"requests": len(res), "errors": errors, "models": dict(models)}}, indent=1))
     rel, rel_err = related(red["meta"], key) if want_related else (None, 0)
-    out.write_text(json.dumps({"transcript": str(path), "signals": signals, "asks": asks, "tool_failures": dict(fails), "related": rel,
+    out.write_text(json.dumps({"transcript": str(path), "start": red["meta"].get("start"), "signals": signals, "asks": asks, "tool_failures": dict(fails), "related": rel,
                                "jev": {"requests": len(res), "errors": errors, "models": dict(models)}}, indent=1))
     print(f"\njson: {out}")
     sys.exit(1 if errors or rel_err else 0)

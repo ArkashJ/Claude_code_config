@@ -7,7 +7,7 @@ judgment; Claude reads the top of the ranking and proves or dismisses each lead.
 
 usage: hunt.py REPO [--src src] [--invariants FILE] [--out DIR] [--limit N] [--workers N]
 """
-import argparse, concurrent.futures as cf, json, os, re, sys, time, urllib.error, urllib.request
+import argparse, subprocess, concurrent.futures as cf, json, os, re, sys, time, urllib.error, urllib.request
 from pathlib import Path
 
 API = "https://api.typesafe.ai/v1/systemone"
@@ -373,6 +373,8 @@ def main():
     ap.add_argument("--workers", type=int, default=8)  # endpoint throttles above ~8 in flight
     ap.add_argument("--threshold", type=float, default=0.7, help="lead band floor")
     ap.add_argument("--review", type=float, default=0.3, help="review band floor; noise straddles 0.5")
+    ap.add_argument("--since", help="only surfaces in files changed since this date/time (plus uncommitted); "
+                    "/harvest and /wrap pass the session start so every session ends with a Jev pass over its own code")
     args = ap.parse_args()
 
     key = api_key()
@@ -380,6 +382,10 @@ def main():
     invariants = load_invariants(inv_path if Path(inv_path).exists() else None)
     waivers = json.loads(Path(inv_path).read_text()).get("waivers", []) if Path(inv_path).exists() else []
     found = list(surfaces(args.repo, args.src, waivers))
+    if args.since:
+        g = lambda *a: subprocess.run(["git", "-C", args.repo, *a], capture_output=True, text=True).stdout.split()
+        changed = set(g("log", f"--since={args.since}", "--name-only", "--format=")) | set(g("diff", "--name-only", "HEAD"))
+        found = [s for s in found if s["file"] in changed]
     todo = found[: args.limit] if args.limit else found
     print(f"surfaces: {len(found)} total, judging {len(todo)}; invariants: {len(invariants)}", file=sys.stderr)
 
@@ -398,7 +404,8 @@ def main():
          for r in results for k, p in leads(r) if p >= args.review),
         key=lambda x: -x["p"],
     )
-    out = Path(args.out or Path.home() / ".claude/qa-runs" / Path(args.repo).resolve().name)
+    # A scoped run must not overwrite the full-repo report that later sessions compare against.
+    out = Path(args.out or Path.home() / ".claude/qa-runs" / (Path(args.repo).resolve().name + ("/since" if args.since else "")))
     out.mkdir(parents=True, exist_ok=True)
     (out / "hunt.json").write_text(json.dumps({"model": MODEL, "results": results, "errors": errors}, indent=1))
     by_check = {}

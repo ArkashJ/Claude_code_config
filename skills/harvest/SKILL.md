@@ -74,6 +74,16 @@ composite ≥ 0.30. Read each LEAD and `read` file, then disposition it in the s
 not a finding. Known ceiling: it cannot surface a file whose identifiers differ from this
 session's, so a neighbour that uses other names needs a `grep` you choose.
 
+### 0c. Jev over the code this session touched, in this repo
+
+Every session is fresh, so the end of each one is the only time its own changes get a deep look.
+For React/TanStack code: `python3 ~/.claude/skills/qa/hunt.py <repo> --src <src> --since <session start>`
+judges every hook surface in the files this session changed or left uncommitted, against the
+generic checks and the repo's `.qa/invariants.json`. The session start is the `start` field in
+the signals JSON. For backend code, run the /backend-edges Nouls on the endpoints whose files changed.
+LEADs go into the step 6 ledger like any other signal. Known ceiling: hunt.py judges hook call
+sites only, and says so by its surface count.
+
 ### 1. Gather the raw material — all of it, untruncated
 
 Do not work from memory; memory keeps the story and drops the mechanism.
