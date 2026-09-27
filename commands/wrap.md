@@ -47,7 +47,7 @@ or not???".
 `git status --porcelain` must end empty: commit remaining work (logical commits, not one blob),
 push, and make sure the draft PR exists and is current. Remove scratch artifacts from the tree.
 Batch the push: one push per branch at the end, not one per fix. Every push re-runs hosted CI
-and sometimes a deploy ("you cannot rerun ci cd after every push", Codex, Profectus).
+and sometimes a deploy ("you cannot rerun ci cd after every push", Codex 01a0d50e).
 
 ## 2. Handoff → PR, not loose files
 

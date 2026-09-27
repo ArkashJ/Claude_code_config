@@ -118,6 +118,9 @@ git -C "$D/repo" checkout -q -b local-only
 git -C "$D/repo" commit -q --allow-empty -m "never pushed"
 checkl "a branch with no upstream and an unpushed commit blocks ending" "branch 'local-only' has 1 commit"
 checkl "…and the verdict says no" "^SAFE TO END: no"
+git -C "$D/repo" checkout -q master
+stub_gh "local-only" ""   # its PR was squash-merged and GitHub deleted the remote head
+checkl "a squash-merged branch gets delete advice, not push advice" "^SAFE TO END: yes"
 
 if [ "$fails" -gt 0 ]; then
   echo "$fails check(s) failed — repo-hygiene.sh can recommend destroying live work"

@@ -49,7 +49,7 @@ and prints SIGNALS, TOOL FAILURES and ASKS with turn numbers. Exit 1 = a Jev req
 Why it exists: a 2026-09-27 study of 187 deduped Claude+Codex sessions found every /harvest ran
 from memory, and the next human turn was the correction: "are you sure thats ALL YOU LEARNT???"
 (9fc47df2), "there were tons of mistakes no??" (b10f8486), "so you acted on those signals??"
-(Codex, PCS). The transcript already held those mistakes.
+(a Codex session). The transcript already held those mistakes.
 
 Start the deliverable with the script's own counts: `N turns, S signals, R in the read band,
 F tool failures, jev: Q requests / E errors / model`. That line answers "did you use jev?".
@@ -65,7 +65,7 @@ python3 ~/.claude/skills/harvest/signals.py --related
 
 A session that fixed notifications has neighbours: the streaming code, the RBAC gate on who
 gets pinged, and the same helper in two other repos. `--related` takes the compound identifiers
-this session's own commits added (e.g. `compliance_scope_org_ids`, `OrgRole`). It shortlists
+this session's own commits added (e.g. `notify_org_admins`, `OrgRole`). It shortlists
 source files that share them across every repo under `$HARVEST_REPO_ROOTS` (default
 `~/Developer:~/Benmore`), weighting rarer identifiers higher. Jev then judges each file:
 `same_concern`, `reusable`, `same_gap`. LEAD = same concern and reuse/gap both above 0.70; `read` =

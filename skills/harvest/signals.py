@@ -13,7 +13,7 @@ never a finding. The rerank cannot surface a file the identifier shortlist misse
 Why: across 187 deduped Claude+Codex sessions (2026-09-27 study), /harvest was run from
 memory, never from the transcript, and the follow-up was "are you sure thats ALL YOU
 LEARNT???" (9fc47df2), "there were tons of mistakes no??" (b10f8486), "so you acted on
-those signals??" (Codex, PCS). The transcript already has every correction and re-ask;
+those signals??" (a Codex session). The transcript already has every correction and re-ask;
 this makes reading it one command.
 
 Output: every human turn judged once (one Jev request per turn, all questions fanned
@@ -25,7 +25,7 @@ out), then
            of its own replies.
 Exit 0 ok · 1 any Jev request failed (the counts are then partial) · 2 no transcript.
 """
-import concurrent.futures as cf, glob, json, os, re, subprocess, sys, tempfile
+import concurrent.futures as cf, glob, json, os, re, subprocess, sys, tempfile, time
 from collections import Counter
 from pathlib import Path
 
@@ -86,12 +86,17 @@ def transcript(argv):
     home = Path.home()
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     hits = glob.glob(str(home / f".claude/projects/*/{sid}.jsonl")) if sid else []
-    tid = os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID")
-    if not hits and tid:
-        hits = glob.glob(str(home / f".codex/sessions/**/*{tid}*.jsonl"), recursive=True)
-    if not hits:  # ponytail: newest transcript for this cwd; pass a path if two sessions share it
+    if not hits:
+        # Codex exposes no session-id variable, so pick the newest transcript FOR THIS CWD across
+        # both harnesses: the running session is the one being written right now. Without the Codex
+        # half, a Codex $harvest silently analysed the newest Claude session in the same directory.
         mangled = re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
         hits = glob.glob(str(home / f".claude/projects/{mangled}/*.jsonl"))
+        for f in glob.glob(str(home / ".codex/sessions/*/*/*/*.jsonl")):
+            if time.time() - os.path.getmtime(f) < 2 * 86400:
+                with open(f, errors="replace") as fh:
+                    if json.loads(fh.readline() or "{}").get("payload", {}).get("cwd") == os.getcwd():
+                        hits.append(f)
     return Path(max(hits, key=os.path.getmtime)) if hits else None
 
 
@@ -131,16 +136,22 @@ def session_change(repo, since, until):
 
 
 def related(meta, key):
-    repo = Path(meta.get("cwd") or os.getcwd())
-    top = git(repo, "rev-parse", "--show-toplevel").strip()
-    if not top:
-        return print(f"\nRELATED: {repo} is not a git repo: unable to measure"), 1
-    subjects, files, added = session_change(top, meta.get("start", "1 day ago"), meta.get("end", "now"))
+    cwd = Path(meta.get("cwd") or os.getcwd())
+    top = git(cwd, "rev-parse", "--show-toplevel").strip()
+    # A session run from a folder of repos (e.g. ~/Developer/<client>/ holding backend, frontend,
+    # infra) changes several repos; read every repo under it that the session committed to.
+    mine = [Path(top)] if top else [Path(g).parent for g in glob.glob(str(cwd / "*/.git")) + glob.glob(str(cwd / "*/*/.git"))]
+    subjects, files, added = [], set(), ""
+    for rp in mine:
+        su, fi, ad = session_change(rp, meta.get("start", "1 day ago"), meta.get("end", "now"))
+        subjects += su; files |= {(rp, f) for f in fi}; added += ad + "\n"
+    if not mine:
+        return print(f"\nRELATED: no git repo at or under {cwd}: unable to measure"), 1
     # Domain terms only: compound identifiers (sendNotification, notify_user) from added CODE lines.
     # Plain words ("button", "portal") and the repo's own name matched 24,603 files in the first
     # trial and every lead was noise (2026-09-27, session 9fc47df2).
     ids = Counter(t for t in re.findall(r"\b[a-z]+(?:[A-Z][a-z0-9]+)+\b|\b[a-z]+(?:_[a-z0-9]+)+\b|\b[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+\b", added)
-                  if t not in STOP and Path(top).name.lower() not in t.lower())
+                  if t not in STOP and not any(rp.name.lower() in t.lower() for rp in mine))
     roots = [Path(os.path.expanduser(r)) for r in os.environ.get("HARVEST_REPO_ROOTS", "~/Developer:~/Benmore").split(":")]
     found = subprocess.run(["find", *map(str, filter(Path.exists, roots)), "-maxdepth", "4", "(", "-name", "node_modules", "-o", "-name", "worktrees",
                             "-o", "-name", "tmp", ")", "-prune", "-o", "-name", ".git", "-type", "d", "-print"], capture_output=True, text=True).stdout
@@ -148,7 +159,7 @@ def related(meta, key):
     df, hits = Counter(), {}
     for t, _ in ids.most_common(30):  # ponytail: one git grep per term per repo; swap for an index if roots grow
         hits[t] = [(rp, f) for rp in repos for f in git(rp, "grep", "-l", "-I", "-w", "-F", t, "--", *SRC).splitlines()
-                   if not (rp == Path(top) and f in files)]
+                   if (rp, f) not in files]
         df[t] = len(hits[t])
     terms = [t for t in hits if 0 < df[t] <= 150][:14]  # a term in >150 files is vocabulary, not a concern
     if not terms:
@@ -166,7 +177,7 @@ def related(meta, key):
         hit = next((i for i, l in enumerate(text) if any(t in l for t in terms)), 0)
         cands.append({"repo": rp.name, "path": f, "shared_terms": [t for t in terms if (rp, f) in hits[t]],
                       "snippet": "\n".join(text[max(0, hit - 12):hit + 25])[:1800]})
-    change = {"commit_subjects": subjects[:15], "files": files[:20], "added_code_excerpt": added[:2500]}
+    change = {"commit_subjects": subjects[:15], "files": sorted(f for _, f in files)[:20], "added_code_excerpt": added[:2500]}
     RQ = {
         "same_concern": {"type": "noul", "instructions": "Does `candidate.snippet` handle the same concern as `session_change`: the same feature area, data flow, or control (for example notifications, permissions, streaming)?",
                          "criteria": {"true": "the same kind of behaviour, even in another repo or language",
@@ -192,8 +203,11 @@ def related(meta, key):
     leads = [r for r in ok if r["same_concern"] > LEAD and max(r["reusable"], r["same_gap"]) > LEAD]
     print(f"\nRELATED: session terms {terms}\n  {len(repos)} repos searched, {len(score)} files share a term, "
           f"{len(cands)} judged, {errs} errors, {len(leads)} leads (concern and reuse/gap both > {LEAD})")
-    for r in ok[:15]:
-        mark = "LEAD" if r in leads else "read" if r["rank"] >= READ else "    "
+    # Every listed file costs Claude a read, and the user is token-constrained: leads plus the top 5 of the band.
+    reads = [r for r in ok if r not in leads and r["rank"] >= READ][:5]
+    print(f"  read list: {len(leads)} leads + {len(reads)} band files (band total {sum(r['rank'] >= READ for r in ok) - len(leads)})")
+    for r in leads + reads:
+        mark = "LEAD" if r in leads else "read"
         print(f"  {mark} {r['rank']:.2f} concern={r['same_concern']} reuse={r['reusable']} gap={r['same_gap']}  {r['repo']}/{r['path']}")
     return ok, 1 if errs else 0
 
@@ -214,7 +228,7 @@ def main():
     turns = [t for t in red["turns"] if not t["human"].startswith("[invoked ")]
     if not turns:
         sys.exit(print(f"0 human turns read from {path} by {cmd[-1]}: unable to measure (Codex needs extractor > 1.0.0)", file=sys.stderr) or 2)
-    print(f"transcript: {path}\nsession: {red['meta'].get('session')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)}")
+    print(f"transcript ({'codex' if '/.codex/' in str(path) else 'claude'}): {path}\nsession: {red['meta'].get('session')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)}")
     key = api_key()
 
     def judge(i):

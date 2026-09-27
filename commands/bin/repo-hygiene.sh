@@ -171,6 +171,10 @@ if [ "$LANDED" -eq 1 ]; then
     [ "$c" -gt 0 ] && { out+=("  $c uncommitted file(s) in $wt"); n_dirty=$((n_dirty + c)); }
   done < <(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}')
   while read -r b; do
+    # A squash-merged PR's branch has commits on no remote once GitHub deletes the head, yet it
+    # is landed; section 2 already says `git branch -D`. Advising a push here recreated junk
+    # remote branches and pinned SAFE TO END at "no" (9783b154: "remotes already auto-deleted").
+    printf '%s\n' "${merged:-}" | grep -qxF "$b" && continue
     c=$(git rev-list --count "$b" --not --remotes 2>/dev/null || echo 0)
     [ "$c" -gt 0 ] && { out+=("  branch '$b' has $c commit(s) on no remote: git push -u origin $b"); n_local=$((n_local + 1)); }
   done < <(git for-each-ref --format='%(refname:short)' refs/heads)
