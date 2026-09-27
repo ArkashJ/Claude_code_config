@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.5.0 — 2026-09-27
+
+- **Hosted CI is not a gate** (user policy). /wrap, /start and /mission now require local gates, batched pushes,
+  and an `--admin` merge when protection blocks only on hosted CI. qa `review.py` no longer blocks PRs whose CI
+  never ran; failing checks still block.
+- **Built-in SWEEP families**, calibrated on fixtures: `export_opportunity`, `bulk_opportunity`,
+  `destructive_ungated` (persists × ungated), `notify_recipients`. First real runs found extractor bugs, not
+  model errors (`removeItem`, `removeEventListener`, a `def send_email(` line); those are fixed in code.
+- `sweep.py`: `--since` for session-end runs, inline fixture labels, an `absent` filter that skips pages which
+  already have the feature, and "fixture-calibrated" marking.
+- qa SKILL: a lens map giving every "what to look at" area its one owning mechanism. It came from a Jev pass
+  over 679 human turns in 187 sessions.
+- harvest step 0c runs every calibrated family on the session's changed files.
+
 ## v1.4.0 — 2026-09-27
 
 - **qa SWEEP (`skills/qa/sweep.py`)**: a port of the per-repo Jev pattern sweep that produced repo A's
