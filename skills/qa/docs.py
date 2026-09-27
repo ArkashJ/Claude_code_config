@@ -146,7 +146,7 @@ def decide(repo, c):
             return p, {"disposition": "keep_in_place", "why": f"hard keep: {a['kind']['choice']}"}
         body = (Path(repo) / p).read_text(errors="replace")
         doc = {"path": p, "bytes": len(body), "kind": a["kind"]["choice"], "filler_0_4": round(a["filler"]["score"], 1),
-               "still_guidance": round(a["still_guidance"], 2), "claims": dict(st[p]), "opening": body[:3000]}
+               "still_guidance": round(a["still_guidance"]["noul"], 2), "claims": dict(st[p]), "opening": body[:3000]}
         r = safe_ask({"doc": doc, "owners": c["owners"]}, Q)
         if "error" in r:
             return p, {"disposition": "keep_in_place", "why": "Jev error: kept"}
@@ -181,7 +181,7 @@ def plan(repo, c):
         if "error" not in a:
             m = a["model"]
             t |= {"model": m["choice"] if m["confidence"] >= 0.5 else {"haiku": "sonnet", "sonnet": "opus"}.get(m["choice"], "opus"),
-                  "model_conf": round(m["confidence"], 2), "needed": round(a["needed"], 2), "effort": round(a["effort"]["score"], 1)}
+                  "model_conf": round(m["confidence"], 2), "needed": round(a["needed"]["noul"], 2), "effort": round(a["effort"]["score"], 1)}
         return t
     return pmap(one, tasks)
 

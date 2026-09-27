@@ -308,7 +308,9 @@ def questions_for(s, invariants):
 def ask(key, state, questions, tries=5):
     body = json.dumps({"state": state, "model": MODEL, "questions": questions}).encode()
     for attempt in range(tries):
-        req = urllib.request.Request(API, body, {"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        # Cloudflare answers the default "Python-urllib/*" UA with 403 (error code 1010); name the client.
+        req = urllib.request.Request(API, body, {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                                                 "User-Agent": "qa-skill-hunt/1.0"})
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 return json.load(r)

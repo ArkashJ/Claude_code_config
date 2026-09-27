@@ -117,7 +117,7 @@ def tier(pr, j, ci, covered_by):
     if covered_by:
         return "covered", f"contained in #{covered_by}"
     if ci in ("failing", "not_run") or pr["mergeable"] == "CONFLICTING":
-        after, why = tier(pr, j, "passing", None)
+        after, why = tier({**pr, "mergeable": "MERGEABLE"}, j, "passing", None)
         cause = {"failing": "CI failing", "not_run": "CI never ran (Actions budget/runner): fix billing, not code"}.get(ci, "merge conflict")
         return "blocked", f"{cause} → then {after} ({TIERS[after][0]}): {why}"
     size = pr["additions"] + pr["deletions"]
