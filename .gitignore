@@ -33,3 +33,4 @@ settings.local.json
 
 # claude.ai-synced skills are per-account runtime state.
 /skills/synced/
+/plugins/plugin-catalog-cache.json

@@ -24,11 +24,11 @@
     "pr-review-toolkit@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/db467cc56673",
-        "version": "db467cc56673",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/fa59bc903774",
+        "version": "fa59bc903774",
         "installedAt": "2026-09-18T19:59:18.701Z",
-        "lastUpdated": "2026-09-22T17:49:25.558Z",
-        "gitCommitSha": "db467cc56673fc963ca418b4165c688dfbe77007"
+        "lastUpdated": "2026-09-26T14:49:33.535Z",
+        "gitCommitSha": "fa59bc9037741ecfa131aa27938272605710d7b2"
       }
     ],
     "typesafe@typesafe-ai": [
@@ -59,6 +59,16 @@
         "installedAt": "2026-09-19T18:54:28.925Z",
         "lastUpdated": "2026-09-19T18:54:28.925Z",
         "gitCommitSha": "c447c3207a425bc4e2a0d068435f64b0477ae981"
+      }
+    ],
+    "vercel@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/vercel/0.50.0",
+        "version": "0.50.0",
+        "installedAt": "2026-09-22T23:38:03.266Z",
+        "lastUpdated": "2026-09-22T23:38:03.266Z",
+        "gitCommitSha": "882e66c2698689324c341b7bb8fd8beb92c27bf6"
       }
     ]
   }
