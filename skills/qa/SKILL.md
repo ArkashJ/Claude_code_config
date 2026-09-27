@@ -35,6 +35,11 @@ These are carried over from qa_skill and frontend-verify. A report that breaks o
    generic tests, stale evidence, denominator mistakes. Unresolved items stay visible.
 10. **Done is an exit code that survives wiring.** Gates re-exit explicitly (`|| { …; exit 2; }`);
     `cmd || echo BLOCKED` exits 0 and passes every failure through.
+11. **Close with `acted X of N`.** Every lead is dispositioned: failing test / fix commit / issue
+    URL / dismissed with a reason. Across the studied runs of HUNT, REVIEW, backend-edges and
+    ui-hunt, the next human turn was "did you act on all the changes???". Landing is checked by
+    `repo-hygiene.sh --landed`, never claimed from memory. `harvest/signals.py` shares
+    `hunt.ask`, so any change to that client must keep both working.
 
 Pick the smallest mode that answers the question. For a whole-repo audit run them in
 order: the repo's own gates → HUNT → prove leads → PLAN the fixes → MEASURE at runtime.

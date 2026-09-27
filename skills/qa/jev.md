@@ -209,7 +209,7 @@ QA: set lower thresholds on surfaces with no test coverage and higher ones on ge
     will it vary. After a run, drop checks whose values barely vary (sd < 0.05 across surfaces).
 17. Suggestions handed to Claude must be framed as ignorable: a confident wrong hint does more harm than none.
 18. Rate-limit discipline: keep 6–8 requests in flight on a shared key; the cookbooks hit 429s above
-    about 8. hunt.py's `--workers 12` default is too high.
+    about 8. hunt.py defaults to `--workers 8`; harvest/signals.py uses 6.
 
 ## 4. Numbers
 

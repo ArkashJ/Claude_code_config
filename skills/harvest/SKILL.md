@@ -8,10 +8,6 @@ description: Turn a session's mistakes into executable guards — scripts and bu
 Harvest the learnings from this session (or a named scope) and convert them into things that
 RUN. A lesson written into a document decays; a lesson written into a test fails a build.
 
-Harvest the learnings from this session (or a named range of work) and convert them into
-**things that run**. A lesson written into a document is a lesson that decays; a lesson written
-into a test is a lesson that fails a build.
-
 `$ARGUMENTS` may name a scope (a PR range, a date, an issue, "this session"). Default: this session.
 
 ## Why this exists
@@ -38,6 +34,45 @@ was preventing the thing they got wrong. **Documentation stopped none of them.**
 That is the yield you are looking for. Not "we should be careful" — a command that cannot lie.
 
 ## Method
+
+### 0. Read the transcript with a command, not with memory
+
+```
+python3 ~/.claude/skills/harvest/signals.py        # this session (Claude or Codex); or pass a .jsonl
+```
+
+It reduces the transcript with harness-extractor, has Jev judge every human turn in one fanned-out
+request each (corrects / re-asks / doubts a claim / wants depth + failure area + what was asked),
+and prints SIGNALS, TOOL FAILURES and ASKS with turn numbers. Exit 1 = a Jev request failed,
+2 = unable to measure (0 turns read). Neither is "nothing to harvest".
+
+Why it exists: a 2026-09-27 study of 187 deduped Claude+Codex sessions found every /harvest ran
+from memory, and the next human turn was the correction: "are you sure thats ALL YOU LEARNT???"
+(9fc47df2), "there were tons of mistakes no??" (b10f8486), "so you acted on those signals??"
+(Codex, PCS). The transcript already held those mistakes.
+
+Start the deliverable with the script's own counts: `N turns, S signals, R in the read band,
+F tool failures, jev: Q requests / E errors / model`. That line answers "did you use jev?".
+Read every turn in the 0.30–0.70 band yourself. Jev screens; you decide.
+Across sessions (a repo's recent history, or "everything"): run `harness-extractor --repeats <files>`
+over fork-deduped transcripts, and include only the mechanisms that recur.
+
+### 0b. Carry the session's fix to its neighbours, across repos (`--related`)
+
+```
+python3 ~/.claude/skills/harvest/signals.py --related
+```
+
+A session that fixed notifications has neighbours: the streaming code, the RBAC gate on who
+gets pinged, and the same helper in two other repos. `--related` takes the compound identifiers
+this session's own commits added (e.g. `compliance_scope_org_ids`, `OrgRole`). It shortlists
+source files that share them across every repo under `$HARVEST_REPO_ROOTS` (default
+`~/Developer:~/Benmore`), weighting rarer identifiers higher. Jev then judges each file:
+`same_concern`, `reusable`, `same_gap`. LEAD = same concern and reuse/gap both above 0.70; `read` =
+composite ≥ 0.30. Read each LEAD and `read` file, then disposition it in the step 6 ledger:
+`issue` in that repo, `fix` (a PR there), or `discard: <reason>`. Jev's score is a place to look,
+not a finding. Known ceiling: it cannot surface a file whose identifiers differ from this
+session's, so a neighbour that uses other names needs a `grep` you choose.
 
 ### 1. Gather the raw material — all of it, untruncated
 
@@ -135,12 +170,30 @@ Against an *intermittent* failure a single green run proves nothing — reproduc
 instead (shrink a timeout, force the error branch, point it at a surface where the thing genuinely
 does not exist).
 
+### 6. Act on every signal: a ledger, X of N
+
+Every SIGNAL and every non-trivial tool-failure shape gets exactly one disposition:
+`guard` (committed, with bite proof) · `fix` (commit/PR link) · `issue` (URL) · `memory`
+(behavioural only, no code can check it) · `discard: <reason>`. Report `acted X of N`. A signal
+without a row counts as not acted on. "So you acted on those signals??" was asked
+after a harvest whose findings were only a report.
+
 ## Deliverable
 
-1. A short table: mechanism → instances → artifact built → proof it bites.
-2. The artifacts, committed.
-3. **What you chose not to build and why.** A harvest that produces nine guards for nine incidents
+1. The counts line from step 0.
+2. A short table: mechanism → instances (turn numbers) → artifact built → proof it bites.
+3. The disposition ledger, `acted X of N`, plus the artifacts, committed and pushed.
+4. **What you chose not to build and why.** A harvest that produces nine guards for nine incidents
    has probably built noise; the mechanisms should collapse into far fewer.
+
+## With /wrap (the usual case)
+
+Harvest is almost always invoked together with wrap ("do a /harvest and /wrap"). The order is
+harvest first, then wrap. Harvest builds and commits its guards but never merges, deploys or
+cleans up; those belong to wrap. Any signal left undispositioned goes into wrap's "Not done"
+list in the handoff prompt, never silently dropped. Decisions that need the human (merge
+bypasses, deletions, product choices) are asked with the interactive question tool, all at
+once, not as a prose list. "ask all interactively!!" was a correction in 3 sessions.
 
 ## Rules
 
