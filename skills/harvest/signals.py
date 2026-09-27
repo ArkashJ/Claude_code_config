@@ -1,20 +1,10 @@
 #!/usr/bin/env python3
 """Mine THIS session's transcript for harvest signals and wrap asks: code reduces, Jev judges.
 
-    python3 ~/.claude/skills/harvest/signals.py [TRANSCRIPT.jsonl] [--related]
+    python3 ~/.claude/skills/harvest/signals.py [TRANSCRIPT.jsonl]
 
---related: also search every repo under $HARVEST_REPO_ROOTS (default ~/Developer:~/Benmore)
-for code in the same state space as what this session changed. Example: a notifications PR
-finds the other repos' notification, RBAC-gating and streaming code that the same fix or
-helper would improve. Code shortlists files by the session's own identifiers, and Jev judges
-each (same concern / reusable here / same gap). Each result is a lead for Claude to verify,
-never a finding. The rerank cannot surface a file the identifier shortlist missed.
-
-Why: across 187 deduped Claude+Codex sessions (2026-09-27 study), /harvest was run from
-memory, never from the transcript, and the follow-up was "are you sure thats ALL YOU
-LEARNT???" (9fc47df2), "there were tons of mistakes no??" (b10f8486), "so you acted on
-those signals??" (a Codex session). The transcript already has every correction and re-ask;
-this makes reading it one command.
+Cross-repo follow-through lives in ~/.claude/skills/qa/sweep.py (harvest step 0b): each fix
+from the session becomes a calibrated Jev family swept across every repo.
 
 Output: every human turn judged once (one Jev request per turn, all questions fanned
 out), then
@@ -100,121 +90,7 @@ def transcript(argv):
     return Path(max(hits, key=os.path.getmtime)) if hits else None
 
 
-STOP = set("""return const function import export default string number boolean props children className
-await async useState useEffect useMemo useCallback value error response request result undefined context
-params config options handler update create delete items length filter render component string object
-console assert expect describe self none true false print super class public private static void
-index query state false args kwargs typing optional""".split())
-
-
-SRC_EXT = set("ts tsx js jsx mjs py go rb java kt swift sql rs php cs".split())
-SRC = [*(f"*.{e}" for e in "ts tsx js jsx mjs py go rb java kt swift sql rs php cs".split()),
-       ":!*.min.*", ":!*.gen.*", ":!**/generated/**", ":!**/vendor/**", ":!**/dist/**"]
-
-
-def git(repo, *a):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout
-
-
-def session_change(repo, since, until):
-    """What this session changed: commit subjects, files, added lines. Falls back to the
-    uncommitted diff when the session committed nothing."""
-    me = git(repo, "config", "user.email").strip()  # --all also fetches teammates' commits from the window
-    log = git(repo, "log", "--all", "--no-merges", f"--author={me}", f"--since={since}", f"--until={until}", "-p", "--format=@@C %s",
-              "--", ".", ":!*.lock", ":!*lock.json", ":!*.snap", ":!*.min.*")
-    log = log or git(repo, "diff", "HEAD")
-    subjects = [l[4:] for l in log.splitlines() if l.startswith("@@C ")]
-    files = sorted({l[6:] for l in log.splitlines() if l.startswith("+++ b/")})
-    added, code = [], False
-    for l in log.splitlines():  # added lines of source files only; docs and JSON artifacts are not concerns
-        if l.startswith("+++ b/"):
-            code = l.rsplit(".", 1)[-1] in SRC_EXT
-        elif code and l.startswith("+"):
-            added.append(l[1:])
-    added = "\n".join(added)
-    return subjects, files, added
-
-
-def related(meta, key):
-    cwd = Path(meta.get("cwd") or os.getcwd())
-    top = git(cwd, "rev-parse", "--show-toplevel").strip()
-    # A session run from a folder of repos (e.g. ~/Developer/<client>/ holding backend, frontend,
-    # infra) changes several repos; read every repo under it that the session committed to.
-    mine = [Path(top)] if top else [Path(g).parent for g in glob.glob(str(cwd / "*/.git")) + glob.glob(str(cwd / "*/*/.git"))]
-    subjects, files, added = [], set(), ""
-    for rp in mine:
-        su, fi, ad = session_change(rp, meta.get("start", "1 day ago"), meta.get("end", "now"))
-        subjects += su; files |= {(rp, f) for f in fi}; added += ad + "\n"
-    if not mine:
-        return print(f"\nRELATED: no git repo at or under {cwd}: unable to measure"), 1
-    # Domain terms only: compound identifiers (sendNotification, notify_user) from added CODE lines.
-    # Plain words ("button", "portal") and the repo's own name matched 24,603 files in the first
-    # trial and every lead was noise (2026-09-27, session 9fc47df2).
-    ids = Counter(t for t in re.findall(r"\b[a-z]+(?:[A-Z][a-z0-9]+)+\b|\b[a-z]+(?:_[a-z0-9]+)+\b|\b[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+\b", added)
-                  if t not in STOP and not any(rp.name.lower() in t.lower() for rp in mine))
-    roots = [Path(os.path.expanduser(r)) for r in os.environ.get("HARVEST_REPO_ROOTS", "~/Developer:~/Benmore").split(":")]
-    found = subprocess.run(["find", *map(str, filter(Path.exists, roots)), "-maxdepth", "4", "(", "-name", "node_modules", "-o", "-name", "worktrees",
-                            "-o", "-name", "tmp", ")", "-prune", "-o", "-name", ".git", "-type", "d", "-print"], capture_output=True, text=True).stdout
-    repos = sorted({Path(g).parent for g in found.split()})
-    df, hits = Counter(), {}
-    for t, _ in ids.most_common(30):  # ponytail: one git grep per term per repo; swap for an index if roots grow
-        hits[t] = [(rp, f) for rp in repos for f in git(rp, "grep", "-l", "-I", "-w", "-F", t, "--", *SRC).splitlines()
-                   if (rp, f) not in files]
-        df[t] = len(hits[t])
-    terms = [t for t in hits if 0 < df[t] <= 150][:14]  # a term in >150 files is vocabulary, not a concern
-    if not terms:
-        return print(f"\nRELATED: no distinctive identifiers in this session's code changes ({len(ids)} candidates, all too common or unique)"), 0
-    score = Counter()
-    for t in terms:
-        for k in hits[t]:
-            score[k] += 1 / (1 + df[t]) ** 0.5  # rarer shared identifiers weigh more
-    per_repo, cands = Counter(), []
-    for (rp, f), n in score.most_common():
-        if per_repo[rp] >= 6 or len(cands) >= 36:  # ponytail: 6/repo, 36 total keeps it one short pass
-            continue
-        per_repo[rp] += 1
-        text = (rp / f).read_text(errors="replace").splitlines()
-        hit = next((i for i, l in enumerate(text) if any(t in l for t in terms)), 0)
-        cands.append({"repo": rp.name, "path": f, "shared_terms": [t for t in terms if (rp, f) in hits[t]],
-                      "snippet": "\n".join(text[max(0, hit - 12):hit + 25])[:1800]})
-    change = {"commit_subjects": subjects[:15], "files": sorted(f for _, f in files)[:20], "added_code_excerpt": added[:2500]}
-    RQ = {
-        "same_concern": {"type": "noul", "instructions": "Does `candidate.snippet` handle the same concern as `session_change`: the same feature area, data flow, or control (for example notifications, permissions, streaming)?",
-                         "criteria": {"true": "the same kind of behaviour, even in another repo or language",
-                                      "false": {"what": "a different concern", "not_for": "code that shares only a common word, a generic utility, or a library name"}}},
-        "reusable": {"type": "noul", "instructions": "Could a helper, pattern, hook, or fix from `session_change` be applied to `candidate.snippet` to improve it?"},
-        "same_gap": {"type": "noul", "instructions": "Does `candidate.snippet` show the same defect, missing check, or gap that `session_change` fixed or added?"},
-    }
-
-    def one(c):
-        try:
-            a = ask(key, {"session_change": change, "candidate": c}, RQ)["answers"]
-            return c | {k: round(v["noul"], 2) for k, v in a.items()}
-        except Exception as e:
-            return c | {"error": str(e)[:160]}
-
-    with cf.ThreadPoolExecutor(6) as ex:
-        res = list(ex.map(one, cands))
-    errs = sum("error" in r for r in res)
-    ok = [r for r in res if "error" not in r]
-    for r in ok:  # composite in code (jev.md): concern gates, reuse/gap ranks
-        r["rank"] = round(0.4 * r["same_concern"] + 0.6 * max(r["reusable"], r["same_gap"]), 2)
-    ok.sort(key=lambda r: -r["rank"])
-    leads = [r for r in ok if r["same_concern"] > LEAD and max(r["reusable"], r["same_gap"]) > LEAD]
-    print(f"\nRELATED: session terms {terms}\n  {len(repos)} repos searched, {len(score)} files share a term, "
-          f"{len(cands)} judged, {errs} errors, {len(leads)} leads (concern and reuse/gap both > {LEAD})")
-    # Every listed file costs Claude a read, and the user is token-constrained: leads plus the top 5 of the band.
-    reads = [r for r in ok if r not in leads and r["rank"] >= READ][:5]
-    print(f"  read list: {len(leads)} leads + {len(reads)} band files (band total {sum(r['rank'] >= READ for r in ok) - len(leads)})")
-    for r in leads + reads:
-        mark = "LEAD" if r in leads else "read"
-        print(f"  {mark} {r['rank']:.2f} concern={r['same_concern']} reuse={r['reusable']} gap={r['same_gap']}  {r['repo']}/{r['path']}")
-    return ok, 1 if errs else 0
-
-
 def main():
-    want_related = "--related" in sys.argv
-    sys.argv = [a for a in sys.argv if a != "--related"]
     path = transcript(sys.argv[1:])
     if not path or not path.exists():
         sys.exit(print("no transcript found; pass its path", file=sys.stderr) or 2)
@@ -277,11 +153,8 @@ def main():
     out = Path(tempfile.gettempdir()) / f"harvest-signals-{red['meta'].get('session') or path.stem}.json"
     out.write_text(json.dumps({"transcript": str(path), "start": red["meta"].get("start"), "signals": signals, "asks": asks, "tool_failures": dict(fails),
                                "jev": {"requests": len(res), "errors": errors, "models": dict(models)}}, indent=1))
-    rel, rel_err = related(red["meta"], key) if want_related else (None, 0)
-    out.write_text(json.dumps({"transcript": str(path), "start": red["meta"].get("start"), "signals": signals, "asks": asks, "tool_failures": dict(fails), "related": rel,
-                               "jev": {"requests": len(res), "errors": errors, "models": dict(models)}}, indent=1))
     print(f"\njson: {out}")
-    sys.exit(1 if errors or rel_err else 0)
+    sys.exit(1 if errors else 0)
 
 
 if __name__ == "__main__":

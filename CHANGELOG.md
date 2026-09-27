@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.4.0 — 2026-09-27
+
+- **qa SWEEP (`skills/qa/sweep.py`)**: a port of the per-repo Jev pattern sweep that produced repo A's
+  swallowed-failure and tenant-scope fixes. Code extracts every site of a pattern (`grep` to the enclosing
+  function, `py_except`, `file`), Jev asks one narrow question per site, and code ranks the answers. A family
+  lives in `<repo>/.qa/families.json`, so client wording stays in the client repo. `run` refuses a family that
+  has not passed `calibrate` on labelled sites (positives >= 0.70, negatives <= 0.30). A label can be a fix's
+  own pre-fix revision. Per-label MISS lines, FLAT-question warnings, cross-file `facts` computed by code,
+  secret redaction, and a cache keyed on state+questions+model are included. On repo A it found 654 sites
+  (the original run found 652) with 0 errors; flags dropped from 35 to 13 after one false-positive class was
+  fixed with code-computed evidence.
+- harvest step 0b / wrap: each fix from a session becomes a calibrated family swept with `--all-repos`.
+  The vague `signals.py --related` questions are deleted: in 3 runs they never scored above 0.68,
+  and `same_gap` barely varied (sd 0.03-0.05).
+- `hunt.py --since`: a Jev pass over only the code a session changed. /mission phase wraps run the asks ledger.
+
 ## v1.3.0 — 2026-09-27
 
 - **harvest reads the transcript, not memory.** `skills/harvest/signals.py` has Jev judge every human turn

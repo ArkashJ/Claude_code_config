@@ -57,22 +57,30 @@ Read every turn in the 0.30–0.70 band yourself. Jev screens; you decide.
 Across sessions (a repo's recent history, or "everything"): run `harness-extractor --repeats <files>`
 over fork-deduped transcripts, and include only the mechanisms that recur.
 
-### 0b. Carry the session's fix to its neighbours, across repos (`--related`)
+### 0b. Carry each fix to its siblings, across repos: a calibrated Jev sweep
 
-```
-python3 ~/.claude/skills/harvest/signals.py --related
-```
+Every bug fixed this session is a pattern, and its siblings are in this repo and in other repos.
+A notifications fix becomes "is the recipient list filtered by role?", asked at every notify call
+everywhere. The machinery is `~/.claude/skills/qa/sweep.py` (see qa SWEEP). Per mechanism:
 
-A session that fixed notifications has neighbours: the streaming code, the RBAC gate on who
-gets pinged, and the same helper in two other repos. `--related` takes the compound identifiers
-this session's own commits added (e.g. `notify_org_admins`, `OrgRole`). It shortlists
-source files that share them across every repo under `$HARVEST_REPO_ROOTS` (default
-`~/Developer:~/Benmore`), weighting rarer identifiers higher. Jev then judges each file:
-`same_concern`, `reusable`, `same_gap`. LEAD = same concern and reuse/gap both above 0.70; `read` =
-composite ≥ 0.30. Read each LEAD and `read` file, then disposition it in the step 6 ledger:
-`issue` in that repo, `fix` (a PR there), or `discard: <reason>`. Jev's score is a place to look,
-not a finding. Known ceiling: it cannot surface a file whose identifiers differ from this
-session's, so a neighbour that uses other names needs a `grep` you choose.
+1. Add a family to `<repo>/.qa/families.json`. The extractor is code that finds every site (`grep` to
+   the enclosing function, `py_except`, or `file`). The question is ONE narrow Noul whose `true`
+   means the bug is present, and whose `score` is high for a finding.
+2. Label the fix itself: `{"rev": "<fix-sha>^", "expect": true}` (the bug) and
+   `{"rev": "<fix-sha>", "expect": false}` (the fix), plus any known-fine site.
+3. `sweep.py calibrate <family> --repo <repo>` must PASS (positives >= 0.70, negatives <= 0.30),
+   and every MISS line gets read. On FAIL, reword it: the narrowest deciding fact goes in the
+   instructions, the reason a negative is fine goes in `criteria.false.not_for`. Missing evidence
+   becomes a code-computed `facts` entry, not wording. Never loosen the gate.
+4. `sweep.py run <family> --all-repos` sweeps every repo under `$HARVEST_REPO_ROOTS`.
+5. Verify each flagged site by reading it. Real sites go into the step 6 ledger as fix or issue.
+   Each false-positive class becomes a `not_for`, a new label, or a new question for next time.
+
+Measured on repo A (2026-09-27), the port behaved like the original: 654 sites against 652,
+0 errors, 26 s. Calibration caught a first wording at 0.69. A readiness-flag false-positive class
+went from 0.81 to 0.60 once code supplied the cross-file fact. Flags fell from 35 to 13, and every
+held-out bug scored >= 0.76. Precision is still low (3/26 and 14/57 in the original run), which is
+why step 5 is not optional.
 
 ### 0c. Jev over the code this session touched, in this repo
 

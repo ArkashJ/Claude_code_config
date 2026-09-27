@@ -118,3 +118,36 @@ hi = {"overwrites_user_draft": .9, "reruns_on_refetch": .9}
 assert hunt.leads({"answers": hi, "facts": {"dependency_kinds": {"user": "passthrough"}}}) == [("draft_clobber", 0.69)]
 assert hunt.leads({"answers": hi, "facts": {"dependency_kinds": {"input": "rebuilt"}}}) == [("draft_clobber", 0.9)]
 print("dep kinds ok")
+
+
+# sweep.py: the pure parts that decide what Jev ever sees. No network.
+import json as _json, subprocess as _sp, sys as _sys, tempfile as _tf
+from pathlib import Path as _P
+import sweep as _sw
+
+_src = '''
+@router.get("/x")
+async def route():
+    try:
+        a()
+    except ValueError:
+        pass
+    try:
+        b()
+    except Exception:
+        log()
+    try:
+        c()
+    except:
+        pass
+'''
+_ex = list(_sw.sites("svc/app/r.py", _src, {"kind": "py_except"}))
+assert [s["line"] for s in _ex] == [10, 14], _ex  # Exception + bare, never ValueError
+_g = list(_sw.sites("svc/app/r.py", _src, {"kind": "grep", "pattern": r"router\.get|a\(\)", "scope": "function"}))
+assert len(_g) == 1 and _g[0]["state"]["snippet"].startswith("2: @router.get"), _g  # decorator belongs to its function
+assert "sk-live-123456789" not in _sw.clip('headers = {"Authorization": "Bearer sk-live-123456789"}')[0]
+with _tf.TemporaryDirectory() as d:
+    (_P(d) / "f.json").write_text(_json.dumps({"fam": {"extract": {"kind": "py_except"}, "questions": {"q": {"type": "noul", "instructions": "x"}}, "score": "q"}}))
+    r = _sp.run([_sys.executable, str(_P(_sw.__file__)), "run", "fam", "--repo", d, "--families", str(_P(d) / "f.json")], capture_output=True, text=True)
+    assert r.returncode == 2 and "not calibrated" in r.stderr, (r.returncode, r.stderr)
+print("sweep extract/redact/calibration-gate ok")

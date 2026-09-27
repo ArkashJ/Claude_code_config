@@ -39,7 +39,10 @@ These are carried over from qa_skill and frontend-verify. A report that breaks o
     URL / dismissed with a reason. Across the studied runs of HUNT, REVIEW, backend-edges and
     ui-hunt, the next human turn was "did you act on all the changes???". Landing is checked by
     `repo-hygiene.sh --landed`, never claimed from memory. `harvest/signals.py` shares
-    `hunt.ask`, so any change to that client must keep both working.
+    `hunt.ask`, as does `sweep.py`, so any change to that client must keep all three working.
+12. **Calibrate before you sweep.** `sweep.py run` refuses a family whose questions and model
+    have not PASSed `calibrate` on labelled sites, unless `--uncalibrated` is given, and then the
+    ledger says so. A question that was never checked against a known answer only looks like a check.
 
 Pick the smallest mode that answers the question. For a whole-repo audit run them in
 order: the repo's own gates → HUNT → prove leads → PLAN the fixes → MEASURE at runtime.
@@ -48,6 +51,7 @@ order: the repo's own gates → HUNT → prove leads → PLAN the fixes → MEAS
 | --- | --- | --- | --- |
 | HISTORY | repo | fix commits by surface × mechanism: where bugs escape | `history.py` |
 | HUNT | repo | ranked leads, `file:line`, per-check probability | `hunt.py` |
+| SWEEP | family in `.qa/families.json` + repo(s) | calibrated per-site Jev ledger across one or all repos | `sweep.py` (harvest step 0b) |
 | REVIEW | OWNER/REPO | PR queue: tier, model, merge order, PRs contained in others | `review.py` |
 | DOCS | repo + `.qa/docs.json` | per-doc disposition, model-routed task plan, dropped-claim queue | `docs.py` |
 | PLAN | diff / PR / branch / module | `docs/QA-PLAN-*.md` with evidence ledger | [plan.md](plan.md) |
