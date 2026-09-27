@@ -1,9 +1,24 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Sync Codex-adapted command variants to BOTH Codex surfaces:
 #  1. ~/.codex/prompts/<name>.md      — custom prompts (/name)
 #  2. ~/.agents/skills/<name>/SKILL.md — agent skills ($name), symlinked into ~/.codex/skills
 # Sources are *.prompt so Claude Code's command scanner never registers them.
 cd "$(dirname "$0")"
+# wrap is harness-neutral, so its Codex variant is GENERATED from ../wrap.md. The hand-copied
+# variant silently lacked the hygiene, continuation-prompt and final-status steps, and "give me
+# a handoff prompt" was the most repeated Codex re-ask after $wrap (2026-09-27 study).
+for n in wrap; do awk 'NR==1&&/^---$/{f=1;next} f&&/^---$/{f=0;next} !f' "../$n.md" > "$n.prompt"; done
+# Drift gate for the hand-adapted rest: every "## " section of ../<n>.md must appear in
+# <n>.prompt or be listed in OMIT as deliberately Claude-only ("<n>: <heading>").
+drift=0
+for f in *.prompt; do
+  n="${f%.prompt}"; [ -f "../$n.md" ] || continue
+  while IFS= read -r h; do
+    grep -qxF -- "$h" "$f" || grep -qxF -- "$n: $h" OMIT 2>/dev/null ||
+      { echo "DRIFT: $f lacks '$h' (port it, or add '$n: $h' to .codex/OMIT)" >&2; drift=1; }
+  done < <(grep -E '^##+ ' "../$n.md")
+done
+[ "$drift" -eq 0 ] || exit 1
 for f in *.prompt; do
   n="${f%.prompt}"
   cp "$f" ~/.codex/prompts/"$n.md"

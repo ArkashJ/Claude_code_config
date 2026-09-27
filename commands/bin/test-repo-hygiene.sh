@@ -100,6 +100,25 @@ kill "$live_pid" 2>/dev/null
 wait "$live_pid" 2>/dev/null
 git -C "$D/repo" worktree remove --force "$D/live-wt" >/dev/null 2>&1
 
+# 6-8. --landed: /wrap's SAFE TO END line must be computed from the tree, and must say "no"
+# for each way work can exist only on this machine (sessions 19df0d01, a3ec5016: "do i end
+# session" / "are the files on main or no??" asked after a wrap had already reported done).
+runl() { (cd "$D/repo" && PATH="$D/stub:$PATH" bash "$SCRIPT" --landed 2>&1); }
+checkl() {  # $1 = label, $2 = pattern
+  local out; out=$(runl)   # capture first: under pipefail `runl | grep -q` fails on runl's exit 1
+  if printf '%s' "$out" | grep -qE "$2"; then echo "ok   — $1"; else echo "FAIL — $1"; printf '%s\n' "$out" | sed 's/^/       /'; fails=$((fails + 1)); fi
+}
+stub_gh "" ""
+git -C "$D/repo" update-ref refs/remotes/origin/master HEAD   # everything so far is "pushed"
+checkl "a clean, pushed repo is safe to end" "^SAFE TO END: yes"
+echo x > "$D/repo/scratch.txt"
+checkl "an uncommitted file blocks ending" "^SAFE TO END: no — 1 uncommitted"
+rm "$D/repo/scratch.txt"
+git -C "$D/repo" checkout -q -b local-only
+git -C "$D/repo" commit -q --allow-empty -m "never pushed"
+checkl "a branch with no upstream and an unpushed commit blocks ending" "branch 'local-only' has 1 commit"
+checkl "…and the verdict says no" "^SAFE TO END: no"
+
 if [ "$fails" -gt 0 ]; then
   echo "$fails check(s) failed — repo-hygiene.sh can recommend destroying live work"
   exit 1

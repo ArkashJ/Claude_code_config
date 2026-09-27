@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # repo-hygiene.sh — report stale worktrees, branches, and doc claims. REPORTS ONLY.
 #
-#   repo-hygiene.sh [--brief] [DIR]
+#   repo-hygiene.sh [--brief] [--landed] [DIR]
+#
+# --landed (used by /wrap) adds: dirty files in any worktree, and local commits that exist on
+# no remote. It ends with ONE line, `SAFE TO END: yes` or `SAFE TO END: no — <reason>`, computed
+# here so the model cannot hand-write it. Studied sessions 9fc47df2, b47591fd, 19df0d01, a3ec5016:
+# the human asked "do i end session" / "are the files on main or no??" AFTER a wrap had reported
+# done, because the wrap's own summary was the only evidence and it had not looked.
 #
 # Deletes nothing, ever. Blast radius belongs to a human; this only removes the excuse
 # that nobody knew. Exit 1 = something is stale, so /start and /wrap can gate on it.
@@ -27,9 +33,10 @@
 set -uo pipefail
 
 BRIEF=0
+LANDED=0
 DIR="$PWD"
 for arg in "$@"; do
-  case "$arg" in --brief) BRIEF=1 ;; --*) ;; *) DIR="$arg" ;; esac
+  case "$arg" in --brief) BRIEF=1 ;; --landed) LANDED=1 ;; --*) ;; *) DIR="$arg" ;; esac
 done
 cd "$DIR" 2>/dev/null || exit 0
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
@@ -153,7 +160,23 @@ for f in CLAUDE.md AGENTS.md; do
            tr -d '`' | sort -u)
 done
 
-total=$((n_wt + n_br + n_wtm + n_doc + n_path + n_live))
+# 7. (--landed) work that exists only on this machine. "Pushed" is checked per commit against
+# every remote ref, not per branch against its upstream: a branch with no upstream has no
+# `@{u}..` to count, which is how local-only branches read as nothing-to-push.
+n_dirty=0; n_local=0
+if [ "$LANDED" -eq 1 ]; then
+  while read -r wt; do
+    [ -z "$wt" ] || [ ! -d "$wt" ] && continue
+    c=$(git -C "$wt" status --porcelain 2>/dev/null | grep -c . || true)
+    [ "$c" -gt 0 ] && { out+=("  $c uncommitted file(s) in $wt"); n_dirty=$((n_dirty + c)); }
+  done < <(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}')
+  while read -r b; do
+    c=$(git rev-list --count "$b" --not --remotes 2>/dev/null || echo 0)
+    [ "$c" -gt 0 ] && { out+=("  branch '$b' has $c commit(s) on no remote: git push -u origin $b"); n_local=$((n_local + 1)); }
+  done < <(git for-each-ref --format='%(refname:short)' refs/heads)
+fi
+
+total=$((n_wt + n_br + n_wtm + n_doc + n_path + n_live + n_dirty + n_local))
 
 if [ "$BRIEF" -eq 1 ]; then
   [ "$total" -eq 0 ] && exit 0        # silent when clean
@@ -176,4 +199,17 @@ else
   printf '%s\n' "${out[@]}"
 fi
 [ "$n_kept" -gt 0 ] && echo "  (kept $n_kept local branch(es) owned by an OPEN PR — never delete these)"
+if [ "$LANDED" -eq 1 ]; then
+  # Open PRs are durable (on the remote) but NOT on the default branch: list them so "is it on
+  # main?" is answered by this output, not by memory. They do not block ending.
+  command -v gh >/dev/null && git remote get-url origin >/dev/null 2>&1 &&
+    timeout 10 gh pr list --author @me --state open --json number,headRefName,statusCheckRollup \
+      -q '.[] | "  open PR #\(.number) \(.headRefName) — not on the default branch yet; checks: \([.statusCheckRollup[]? | (.conclusion // .state)] | unique | join(",") | if .=="" then "none" else . end)"' 2>/dev/null
+  if [ $((n_dirty + n_local)) -eq 0 ]; then
+    echo "SAFE TO END: yes — nothing exists only on this machine"
+  else
+    echo "SAFE TO END: no — $n_dirty uncommitted file(s), $n_local branch(es) with commits on no remote"
+    exit 1
+  fi
+fi
 exit $([ "$total" -eq 0 ]; echo $?)

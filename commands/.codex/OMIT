@@ -1,0 +1,4 @@
+start: ## 2b. Declare the skills this task will use — before the human names them
+start: ## 4. Delegate — agents and workflows, tiered by cost
+start: ## 7b. When a tool call is denied — say so, once, in one line
+start: ## 8. Ending a turn
