@@ -116,10 +116,13 @@ def tier(pr, j, ci, covered_by):
     """Routing policy lives here, in code, where it can be read and changed."""
     if covered_by:
         return "covered", f"contained in #{covered_by}"
-    if ci in ("failing", "not_run") or pr["mergeable"] == "CONFLICTING":
+    if ci == "failing" or pr["mergeable"] == "CONFLICTING":
         after, why = tier({**pr, "mergeable": "MERGEABLE"}, j, "passing", None)
-        cause = {"failing": "CI failing", "not_run": "CI never ran (Actions budget/runner): fix billing, not code"}.get(ci, "merge conflict")
+        cause = "CI failing" if ci == "failing" else "merge conflict"
         return "blocked", f"{cause} → then {after} ({TIERS[after][0]}): {why}"
+    if ci == "not_run":  # hosted CI is not a gate (user policy 2026-09-27): review on local gates instead
+        t, why = tier(pr, j, "passing", None)
+        return t, f"CI never ran (billing/runner): run local gates, merge --admin; {why}"
     size = pr["additions"] + pr["deletions"]
     r = j["risk"]
     why = []

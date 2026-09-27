@@ -90,6 +90,8 @@ def sites(rel, text, ex):
         except SyntaxError:
             pass
     ctx = "\n".join(l for l in lines if re.search(ex["file_context"], l))[:1500] if ex.get("file_context") else None
+    if ex.get("absent") and re.search(ex["absent"], text):  # case-sensitive: `export function` is not an export feature
+        return  # the feature is already there: an opportunity family must not flag it
     if kind == "file":
         if not ex.get("pattern") or re.search(ex["pattern"], text):
             body, tr = clip(text)
@@ -141,9 +143,78 @@ def add_facts(repo, s):
     return s
 
 
+TSX_SKIP = r"(^|/)(node_modules|dist|build|e2e|__tests__|mocks?|stories)/|\.(test|spec|stories)\.|\.d\.ts$"
+# Generic families: repo-agnostic wording, calibrated only on inline fixtures, so a ledger from one says
+# "fixture-calibrated" until the repo adds real labels in its own .qa/families.json (which overrides these).
+# Chosen from a Jev pass over 733 human turns in 188 sessions: the areas the user most often had to point
+# the assistant at (nice-to-have additions, permissions, notifications). Hooks/effects/mutations are hunt.py's.
+DEFAULTS = {
+    "export_opportunity": {
+        "extract": {"kind": "file", "include": ["*.tsx"], "exclude": TSX_SKIP, "pattern": r"<(Table|DataTable|DataGrid)\b|columns\s*[:=]\s*\[",
+                    "absent": r"[Cc]sv|CSV|[Ee]xport(To|As|Csv|CSV|Data|Button|Menu|Rows)|<Export|[Dd]ownload|xlsx"},
+        "questions": {"export_useful": {"type": "noul",
+            "instructions": "`source` is a page or component that lists records in a table and has no export. Would its users plausibly need these records outside the app, for reports, audits, reconciliation, or sharing with people who have no account?",
+            "criteria": {"true": {"what": "business records people report on or hand to others", "examples": ["invoices", "orders", "employees", "audit events", "compliance findings"]},
+                         "false": {"what": "records nobody takes outside the app", "not_for": "UI configuration lists, navigation menus, a table of the user's own settings, or a picker inside a form"}}}},
+        "score": "export_useful",
+        "calibration": [
+            {"file": "OrdersPage.tsx", "expect": True, "text": "export function OrdersPage() {\n  const { data } = useOrders();\n  return <DataTable columns={[{key: 'id'}, {key: 'customer'}, {key: 'total'}, {key: 'status'}]} rows={data} />;\n}"},
+            {"file": "AuditLog.tsx", "expect": True, "text": "export function AuditLog() {\n  const { data } = useAuditEvents();\n  return <Table columns={[{key: 'actor'}, {key: 'action'}, {key: 'at'}]} rows={data} />;\n}"},
+            {"file": "ThemePicker.tsx", "expect": False, "text": "export function ThemePicker({ onPick }) {\n  return <Table columns={[{key: 'name'}, {key: 'preview'}]} rows={THEMES} onRowClick={onPick} />;\n}"},
+            {"file": "SidebarLinks.tsx", "expect": False, "text": "export function SidebarLinks() {\n  const columns = [{key: 'label'}];\n  return <Table columns={columns} rows={NAV_ITEMS} dense />;\n}"}]},
+    "bulk_opportunity": {
+        "extract": {"kind": "file", "include": ["*.tsx"], "exclude": TSX_SKIP,
+                    "pattern": r"onClick=\{[^}]*\b(delete|remove|archive|approve|assign|resend|cancel)\w*\(\s*\w+(\.id)?",
+                    "absent": r"selectAll|selectedRows|selectedIds|rowSelection|bulk"},
+        "questions": {"bulk_useful": {"type": "noul",
+            "instructions": "`source` offers an action on one row at a time and has no multi-select. Is this the kind of action a person repeats across many rows in one sitting, working through a queue of records (approving, assigning, archiving, resending)?",
+            "criteria": {"true": {"what": "a queue-style action people apply row after row", "examples": ["approve each timesheet in a list of pending timesheets", "assign each ticket in an inbox", "archive old orders"]},
+                         "false": {"what": "the action is rare, one-off, or must be judged record by record", "not_for": "deleting the user's own account, a single settings row, or an action that needs per-record review"}}}},
+        "score": "bulk_useful",
+        "calibration": [
+            {"file": "Timesheets.tsx", "expect": True, "text": "export function Timesheets({ rows }) {\n  return rows.map(r => <Row key={r.id}>{r.employee} {r.hours}<Button onClick={() => approveTimesheet(r.id)}>Approve</Button></Row>);\n}"},
+            {"file": "Tickets.tsx", "expect": True, "text": "export function Tickets({ rows }) {\n  return rows.map(t => <Row key={t.id}>{t.subject}<Button onClick={() => assignTicket(t.id)}>Assign to me</Button></Row>);\n}"},
+            {"file": "ApiKeys.tsx", "expect": False, "text": "export function ApiKeys({ keys }) {\n  // one key per integration; rotating is rare and deliberate\n  return keys.map(k => <Row key={k.id}>{k.name}<Button onClick={() => deleteKey(k.id)}>Revoke</Button></Row>);\n}"},
+            {"file": "Account.tsx", "expect": False, "text": "export function Account({ me }) {\n  return <Row>{me.email}<Button onClick={() => deleteAccount(me.id)}>Delete my account</Button></Row>;\n}"}]},
+    "destructive_ungated": {
+        "extract": {"kind": "grep", "include": ["*.tsx"], "exclude": TSX_SKIP, "scope": "window", "before": 40, "after": 10,
+                    # DOM/storage cleanup is not a destructive action (repo A sweep 2026-09-27: removeItem and
+                    # removeEventListener were the top two flags, both false).
+                    "pattern": r"\b(?!removeEventListener|removeItem|removeChild|removeAttribute|removeProperty|removeQueries)"
+                               r"(delete|remove|revoke|archive|deactivate|purge)\w*\s*\(|useDelete\w*\("},
+        "questions": {"persists": {"type": "noul",
+            "instructions": "Does the destructive call in `snippet` change data stored on a server (calls an API, a mutation hook, or a service), rather than only local UI state such as a form's list or a component's useState?",
+            "criteria": {"true": {"examples": ["deleteUser(u.id)", "useDeleteOrder().mutate(id)", "api.revokeKey(k.id)"]},
+                         "false": {"examples": ["removeTag(i) on a setTags list", "remove(index) from useFieldArray", "setItems(items.filter(...))"]}}},
+                      "gated": {"type": "noul",
+            "instructions": "Look at the destructive action in `snippet` (delete, remove, revoke, archive, deactivate). Is showing or running it guarded by a permission, role, or ownership check visible in the snippet?",
+            "criteria": {"true": {"what": "a check such as can('orders.delete'), hasPermission, a role test, or an ownership test guards the control or the call",
+                                  "examples": ["{can('user.delete') && <Button onClick={() => deleteUser(u.id)}>", "if (!hasPermission(p, 'archive')) return null"]},
+                         "false": {"what": "any signed-in user sees and can trigger it", "not_for": "removing an item from the user's own unsaved local list, form field arrays, or UI-only state"}}}},
+        "score": "persists * (1 - gated)",
+        "calibration": [
+            {"file": "Users.tsx", "line": 4, "expect": True, "text": "import { deleteUser } from '../api/users';\nexport function Users({ users }) {\n  return users.map(u => <Row key={u.id}>{u.name}\n    <Button onClick={() => deleteUser(u.id)}>Delete</Button></Row>);\n}"},
+            {"file": "Users2.tsx", "line": 5, "expect": False, "text": "import { deleteUser } from '../api/users';\nexport function Users({ users }) {\n  const can = usePermissions();\n  return users.map(u => <Row key={u.id}>{u.name}\n    {can('user.delete') && <Button onClick={() => deleteUser(u.id)}>Delete</Button>}</Row>);\n}"},
+            {"file": "TagInput.tsx", "line": 3, "expect": False, "text": "export function TagInput({ tags, setTags }) {\n  return tags.map((t, i) => <Chip key={t}>{t}\n    <X onClick={() => removeTag(i)} /></Chip>);\n}"}]},
+    "notify_recipients": {
+        "extract": {"kind": "grep", "include": ["*.py", "*.ts"], "scope": "function",
+                    # calls only: not the sender's own `def send_email(` or a docstring mention (both flagged 2026-09-27)
+                    "pattern": r"(?<!def )(?<![`\w])(send_(email|notification|sms)|notify\w*|sendNotification|sendEmail|publish_notification)\s*\("},
+        "questions": {"recipients_scoped": {"type": "noul",
+            "instructions": "Look at who receives the notification sent in `snippet`. Is the recipient list restricted to the right tenant/organization AND to users whose role or permission entitles them to this content?",
+            "criteria": {"true": "recipients are filtered by tenant and by role/permission, or the recipient is exactly the acting user or a single explicitly addressed person",
+                         "false": {"what": "recipients come from an unscoped query or list, or role/permission is not checked", "examples": ["User.query.all()", "every member of any org", "all admins across tenants"]}}}},
+        "score": "1 - recipients_scoped",
+        "calibration": [
+            {"file": "n1.py", "line": 3, "expect": True, "text": "def alert_admins(msg):\n    admins = db.query(User).filter(User.role == 'admin').all()\n    for a in admins: send_email(a.email, msg)\n"},
+            {"file": "n2.py", "line": 4, "expect": False, "text": "def alert_admins(org_id, msg):\n    admins = db.query(User).filter(User.org_id == org_id, User.permissions.contains('alerts.read')).all()\n    for a in admins:\n        send_email(a.email, msg)\n"},
+            {"file": "n3.py", "line": 2, "expect": False, "text": "def confirm_signup(user):\n    send_email(user.email, 'Welcome')\n"}]},
+}
+
+
 def load_family(args):
     path = Path(args.families) if args.families else Path(args.repo[0] if args.repo else ".") / ".qa/families.json"
-    fams = json.loads(path.read_text()) if path.exists() else {}
+    fams = {**DEFAULTS, **(json.loads(path.read_text()) if path.exists() else {})}
     if args.family not in fams:
         sys.exit(print(f"no family {args.family!r} in {path} (have: {', '.join(fams) or 'none'})", file=sys.stderr) or 2)
     return fams[args.family], path
@@ -172,7 +243,7 @@ def judge_all(key, fam, todo):
 
 
 def out_dir(fam_path, family):
-    d = Path.home() / ".claude/qa-runs" / fam_path.resolve().parent.parent.name / "sweep"
+    d = Path.home() / ".claude/qa-runs" / (fam_path.resolve().parent.parent.name if fam_path.exists() else "_defaults") / "sweep"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -186,11 +257,12 @@ def calibrate(args):
         sys.exit(print(f"calibration needs >=1 true and >=1 false label (have {npos}/{nneg})", file=sys.stderr) or 2)
     todo = []
     for lb in labels:
-        text = git(repo, "show", f"{lb['rev']}:{lb['file']}") if lb.get("rev") else (repo / lb["file"]).read_text(errors="replace")
+        text = lb["text"] if "text" in lb else git(repo, "show", f"{lb['rev']}:{lb['file']}") if lb.get("rev") \
+            else (repo / lb["file"]).read_text(errors="replace")
         cand = list(sites(lb["file"], text, fam["extract"]))
         if not cand:
             sys.exit(print(f"label {lb} matched no site: the extractor cannot see it, fix the extractor first", file=sys.stderr) or 2)
-        site = min(cand, key=lambda s: abs(s["line"] - lb["line"])) | {"label": lb, "file": lb["file"]}
+        site = min(cand, key=lambda s: abs(s["line"] - lb.get("line", 1))) | {"label": lb, "file": lb["file"]}
         todo.append(add_facts(repo, site))
     res = judge_all(api_key(), fam, todo)
     errs = [r for r in res if "error" in r]
@@ -208,7 +280,8 @@ def calibrate(args):
         if r["label"]["expect"] and r["score"] < args.threshold or not r["label"]["expect"] and r["score"] > PASS_NEG:
             print(f"  MISS at --threshold {args.threshold}: expect={r['label']['expect']} score={r['score']:.2f} "
                   f"{r['label']['file']}:{r['line']}  {r['label'].get('why', '')}")
-    rec = {"family": args.family, "qhash": qhash(fam), "model": MODEL, "pos_mean": round(pos, 2), "neg_mean": round(neg, 2),
+    fixture_only = all("text" in lb for lb in labels)
+    rec = {"family": args.family, "qhash": qhash(fam), "model": MODEL, "fixture_only": fixture_only, "pos_mean": round(pos, 2), "neg_mean": round(neg, 2),
            "labels": len(res), "result": "PASS" if ok else "FAIL"}
     (out_dir(fpath, args.family) / f"{args.family}.calibration.json").write_text(json.dumps(rec, indent=1))
     print(f"{args.family}: positives {pos:.2f} (need >= {PASS_POS}), negatives {neg:.2f} (need <= {PASS_NEG}) -> {rec['result']}")
@@ -230,7 +303,12 @@ def run(args):
     repos = all_repos() if args.all_repos else [Path(r).resolve() for r in args.repo]
     found = []
     for rp in repos:
+        changed = None
+        if args.since:  # wrap/harvest: judge only what this session touched
+            changed = set(git(rp, "log", f"--since={args.since}", "--name-only", "--format=").split()) | set(git(rp, "diff", "--name-only", "HEAD").split())
         for f in files(rp, fam["extract"]):
+            if changed is not None and f not in changed:
+                continue
             try:
                 text = (rp / f).read_text(errors="replace")
             except OSError:
@@ -267,7 +345,7 @@ def run(args):
     flat = [q for q, v in fam["questions"].items() if v.get("type", "noul") == "noul" and len(rows) > 5
             and statistics.pstdev(r["answers"][q]["noul"] for r in rows if q in r["answers"]) < 0.05]
     L = [f"# Jev sweep ledger: {args.family}. Code selected sites, Jev judged, code ranked. Probabilities, not verdicts.",
-         f"model: {MODEL}  calibration: {cal.get('result', 'none') if calibrated else 'UNCALIBRATED'}"
+         f"model: {MODEL}  calibration: {('fixture-calibrated (add real labels in .qa/families.json)' if cal.get('fixture_only') else cal.get('result')) if calibrated else 'UNCALIBRATED'}"
          f"{' pos ' + str(cal['pos_mean']) + ' neg ' + str(cal['neg_mean']) if calibrated else ''}",
          f"sites: {len(found)}  judged: {len(rows)}  errors: {errors}  truncated: {sum(r['truncated'] for r in rows)}  "
          f"flagged >= {args.threshold}: {len(flagged)}  repos: {', '.join(sorted({r['repo'] for r in rows}))}",
@@ -295,6 +373,7 @@ def main():
     ap.add_argument("--threshold", type=float, default=0.75)
     ap.add_argument("--top", type=int, default=25, help="flagged sites to print (all go to the ledger file)")
     ap.add_argument("--limit", type=int, default=0, help="judge at most N uncached sites (smoke run)")
+    ap.add_argument("--since", help="only files changed since this date/time plus uncommitted (session-end runs)")
     ap.add_argument("--uncalibrated", action="store_true", help="run without a PASSing calibration; the ledger says so")
     a = ap.parse_args()
     calibrate(a) if a.cmd == "calibrate" else run(a)

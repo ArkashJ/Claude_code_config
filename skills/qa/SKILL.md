@@ -57,6 +57,31 @@ order: the repo's own gates → HUNT → prove leads → PLAN the fixes → MEAS
 | PLAN | diff / PR / branch / module | `docs/QA-PLAN-*.md` with evidence ledger | [plan.md](plan.md) |
 | MEASURE | repo + optional `--base URL` | `qa` findings, coverage, gaps, exit code | `~/Developer/todo/Automated_QA/SKILL.md` (`qa help`) |
 
+## What to look at: every lens and the mechanism that checks it
+
+A Jev pass over 679 human turns in 187 sessions (2026-09-27) found what the user most often had to
+ask for or point at. Each lens has one owner. Don't re-ask Jev what code or another mode already checks.
+
+| Lens | Mechanism | Jev? |
+|---|---|---|
+| hooks, useEffect, useState, queries, mutations/cache | HUNT (`hunt.py`, GENERIC checks + `.qa/invariants.json`) | per call site |
+| invariants | `.qa/invariants.json` in HUNT; a repo SWEEP family for backend rules | per site |
+| swallowed errors, cache keys, routes/auth, handlers, startup | repo SWEEP families (`.qa/families.json`) | per site, calibrated |
+| permissions on destructive actions | SWEEP `destructive_ungated` (persists × ungated) | per site |
+| notification recipients (tenant + role) | SWEEP `notify_recipients` | per send call |
+| nice-to-haves: CSV export, bulk actions | SWEEP `export_opportunity`, `bulk_opportunity` (code first removes pages that already have the feature) | per page |
+| navigation reachability, frontend gate vs backend permission, enum parity | code cross-checks (routes vs nav links, gate vs requirement) | no |
+| loading / empty / error states, modals, 320px | ui-stress + `qa verify` in the browser; /ui-hunt | no |
+| edge cases on endpoints | /backend-edges (per-endpoint Nouls) | per endpoint |
+| adversarial review of findings | citation check (jev.md): code confirms `file:line` exists, then a Choice `supports/contradicts/says_nothing` on {claim, enclosing function}; accept at conf ≥ 0.8 | per finding |
+| tests, docs, PR queue, model choice | PLAN, DOCS, REVIEW (`review.py`) | per PR / doc |
+| session mistakes, asks, landing | harvest `signals.py`, `repo-hygiene.sh --landed` | per turn |
+
+Precision is roughly 3/26–14/57 on real sweeps, so every Jev flag is a lead to verify. Each false-positive
+class goes back as a code fix (extractor pattern, `absent` filter, computed `facts`) or a `not_for`.
+Code fixes worked better than rewording: the top two `destructive_ungated` flags were `removeItem` and
+`removeEventListener`, which is an extractor bug, not a model error.
+
 ## HUNT: Jev over every surface
 
 Jev is TypeSafe's System One model: state + yes/no questions in, calibrated probabilities

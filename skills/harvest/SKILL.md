@@ -89,6 +89,10 @@ For React/TanStack code: `python3 ~/.claude/skills/qa/hunt.py <repo> --src <src>
 judges every hook surface in the files this session changed or left uncommitted, against the
 generic checks and the repo's `.qa/invariants.json`. The session start is the `start` field in
 the signals JSON. For backend code, run the /backend-edges Nouls on the endpoints whose files changed.
+Then run every calibrated family on the same changed files:
+`python3 ~/.claude/skills/qa/sweep.py run <family> --repo <repo> --since <session start>`. That
+covers the repo's own `.qa/families.json` and the built-in defaults (`export_opportunity`,
+`bulk_opportunity`, `destructive_ungated`, `notify_recipients`).
 LEADs go into the step 6 ledger like any other signal. Known ceiling: hunt.py judges hook call
 sites only, and says so by its surface count.
 

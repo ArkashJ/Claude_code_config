@@ -63,8 +63,11 @@ assert not hunt.updates_cache("useMutation({ mutationFn: f }) // invalidateQueri
 assert not hunt.updates_cache("useMutation({ /* setQueryData later */ mutationFn: f })", set())
 assert hunt.updates_cache("useMutation({ onSuccess: () => qc.invalidateQueries({ queryKey: ['https://x'] }) })", set())
 print("comments ok")
+# Hosted CI is not a gate (user policy 2026-09-27): CI that never ran (billing) routes the PR to its normal
+# tier with a local-gates note; only a FAILING check or a conflict blocks.
 t, why = review.tier(pr, calm, "not_run", None)
-assert t == "blocked" and "never ran" in why, why
+assert t != "blocked" and "never ran" in why and "local gates" in why, (t, why)
+assert review.tier(pr, calm, "failing", None)[0] == "blocked"
 print("not_run ok")
 
 # repo B 2026-09-22: 96% of reads went through the repo's own useApiQuery; matching TanStack
