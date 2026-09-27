@@ -28,6 +28,13 @@ if printf '%s' "$cmd" | grep -Eq '(^[[:space:]]*cd[[:space:]]+[^;&|]+&&)|((;|&&)
     echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: 'cd X &&' / '; cd X' chain found. The harness resets cwd between calls and the chain leaks it into the next command; use an absolute path, 'git -C <path>', or 'uv --directory <path>'." >&2
     exit 2
 fi
+# Session afac82d1 (2026-09-27): a sub-agent meant to close its own sessions ran
+# `playwright-cli close-all`, which closes EVERY playwright-cli session on the machine,
+# including other lanes' logged-in browsers. Name the session instead.
+if printf '%s' "$cmd" | grep -Eq 'playwright-cli[^;&|]*[[:space:]](close-all|kill-all)([[:space:]]|$)'; then
+    echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: 'playwright-cli close-all/kill-all' closes every browser session on this machine, including other lanes'. Close only your own: 'playwright-cli -s=<name> close' (see 'playwright-cli list')." >&2
+    exit 2
+fi
 if printf '%s' "$cmd" | grep -Eq '(^|[;&|][[:space:]]*)git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit([[:space:]]|$)'; then
     dir=$(printf '%s' "$cmd" | sed -nE 's/.*git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+commit.*/\1/p' | head -1 | tr -d "\"'")
     dir=${dir:-$PWD}

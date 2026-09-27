@@ -19,7 +19,13 @@ check 2 "sleep N" 'while true; do sleep 1; check; done'
 check 2 "cd X" 'cd /tmp/x && make'
 check 2 "cd X" 'ls; cd /tmp/x; make'
 check 2 "cd X" 'true && cd /tmp/x && make'
+# playwright-cli close-all/kill-all: session afac82d1, a sub-agent closed EVERY browser session on the machine
+check 2 "close-all" 'playwright-cli close-all'
+check 2 "close-all" 'npx playwright-cli kill-all'
+check 2 "close-all" 'playwright-cli -s=a snapshot; playwright-cli close-all'
 # must allow
+check 0 "" 'playwright-cli -s=cg-trial-sc-owner close'
+check 0 "" 'playwright-cli list'
 check 0 "" 'git -C /tmp/x status'
 check 0 "" 'uv --directory /tmp/x run pytest'
 check 0 "" 'python3 -c "import time; time.sleep(1)"'
