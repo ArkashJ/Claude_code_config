@@ -6,6 +6,14 @@
 Cross-repo follow-through lives in ~/.claude/skills/qa/sweep.py (harvest step 0b): each fix
 from the session becomes a calibrated Jev family swept across every repo.
 
+Human turns = what the extractor reads (typed prompts) PLUS two kinds it cannot see, both merged
+in time order (INCIDENT 2026-09-29, session 3d5863e4: "human turns: 7", and the session's key
+correction "you've added unnecessary guard rails which has nerfed the tool" was never judged,
+because a message typed mid-turn is stored as {"type":"attachment","attachment":{"type":
+"queued_command","origin":{"kind":"human"}}}, not as a user record; and ~40 decisions the owner gave
+as AskUserQuestion answers, incl. "depends we can be buyers or sellers???", live in tool_result text
+"Your questions have been answered:" / "The user answered:"). kind = typed | mid-turn | answer.
+
 Output: every human turn judged once (one Jev request per turn, all questions fanned
 out), then
   SIGNALS: turns where the human corrected, re-asked, doubted a claim, or asked for depth.
@@ -90,21 +98,81 @@ def transcript(argv):
     return Path(max(hits, key=os.path.getmtime)) if hits else None
 
 
+ANSWER = re.compile(r"\s*(Your questions have been answered|The user answered|User has answered)[^:]*:\s*(.*)", re.S)
+TAIL = re.compile(r"\s*(You can now continue|Read the answers carefully).*", re.S)
+
+
+def _human_queued(a):
+    """A queued_command attachment is the owner's own message only when its origin says so;
+    task-notifications and subagent hand-backs are also queued_commands and are NOT human."""
+    o = a.get("origin")
+    if isinstance(o, dict) and o.get("kind"):
+        return o["kind"] == "human"
+    return bool(a.get("humanTurn")) or (a.get("commandMode") == "prompt" and not str(a.get("prompt", "")).lstrip().startswith("<"))
+
+
+def extra_turns(path):
+    """Human turns the extractor cannot see (Claude transcripts): mid-turn queued messages and
+    AskUserQuestion answers. -> [{"at","human","kind"}]"""
+    out = []
+    for line in Path(path).read_text(errors="replace").splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        a, m = d.get("attachment"), d.get("message")
+        if isinstance(a, dict) and a.get("type") == "queued_command" and _human_queued(a):
+            out.append({"at": d.get("timestamp"), "human": str(a.get("prompt", "")).strip(), "kind": "mid-turn"})
+        elif d.get("type") == "user" and isinstance(m, dict) and isinstance(m.get("content"), list):
+            for b in m["content"]:
+                if not (isinstance(b, dict) and b.get("type") == "tool_result"):
+                    continue
+                c = b.get("content")
+                t = c if isinstance(c, str) else " ".join(x.get("text", "") for x in c or [] if isinstance(x, dict))
+                hit = ANSWER.match(t)
+                if hit:
+                    out.append({"at": d.get("timestamp"), "human": "[answers to your questions] " + TAIL.sub("", hit.group(2)).strip(), "kind": "answer"})
+    return [t for t in out if t["human"]]
+
+
+def merge_turns(turns, extra):
+    """Interleave extras into the extractor's turns by timestamp, renumber, drop echoes of a
+    prompt the extractor already has (a queued message can also surface as a user record)."""
+    have = {t["human"][:60] for t in turns}
+    for t in turns:
+        t.setdefault("kind", "typed")
+    new = [{**e, "n": 0, "reply": "", "failed": [], "emphatic": bool(re.search(r"[!?]{2,}|\b[A-Z]{4,}\b", e["human"]))}
+           for e in extra if e["human"][:60] not in have]
+    merged = sorted(turns + new, key=lambda t: t.get("at") or "")  # stable: ties keep extractor order
+    for i, t in enumerate(merged, 1):
+        t["n"] = i
+    return merged
+
+
+def load_turns(path, cmd=None):
+    """-> (red, turns) with every human turn, typed or not. No Jev; safe to call from tests."""
+    if cmd is None:
+        # The brew/pipx harness-extractor 1.0.0 predates Codex support: it reads a Codex rollout as
+        # 0 turns and exits 0, so this script reported "0 signals" on a session full of them. Prefer
+        # the source checkout when present, and treat 0 turns as unable-to-measure, never as clean.
+        src = Path.home() / "Developer/personal/extractor/harness_extractor.py"
+        cmd = [sys.executable, str(src)] if src.exists() else ["harness-extractor"]
+    r = subprocess.run([*cmd, "--json", str(path)], capture_output=True, text=True)
+    red = json.loads(r.stdout)[0] if r.returncode == 0 and r.stdout.strip() else {"meta": {}, "turns": []}
+    turns = [t for t in red["turns"] if not t["human"].startswith("[invoked ")]
+    if turns and "/.codex/" not in str(path):  # Codex rollouts have neither queued_command nor AskUserQuestion
+        turns = merge_turns(turns, extra_turns(path))
+    return red, turns
+
+
 def main():
     path = transcript(sys.argv[1:])
     if not path or not path.exists():
         sys.exit(print("no transcript found; pass its path", file=sys.stderr) or 2)
-    # The brew/pipx harness-extractor 1.0.0 predates Codex support: it reads a Codex rollout as
-    # 0 turns and exits 0, so this script reported "0 signals" on a session full of them. Prefer
-    # the source checkout when present, and treat 0 turns as unable-to-measure, never as clean.
-    src = Path.home() / "Developer/personal/extractor/harness_extractor.py"
-    cmd = [sys.executable, str(src)] if src.exists() else ["harness-extractor"]
-    r = subprocess.run([*cmd, "--json", str(path)], capture_output=True, text=True)
-    red = json.loads(r.stdout)[0] if r.returncode == 0 and r.stdout.strip() else {"meta": {}, "turns": []}
-    turns = [t for t in red["turns"] if not t["human"].startswith("[invoked ")]
+    red, turns = load_turns(path)
     if not turns:
-        sys.exit(print(f"0 human turns read from {path} by {cmd[-1]}: unable to measure (Codex needs extractor > 1.0.0)", file=sys.stderr) or 2)
-    print(f"transcript ({'codex' if '/.codex/' in str(path) else 'claude'}): {path}\nsession: {red['meta'].get('session')}  start: {red['meta'].get('start')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)}")
+        sys.exit(print(f"0 human turns read from {path} by harness-extractor: unable to measure (Codex needs extractor > 1.0.0)", file=sys.stderr) or 2)
+    print(f"transcript ({'codex' if '/.codex/' in str(path) else 'claude'}): {path}\nsession: {red['meta'].get('session')}  start: {red['meta'].get('start')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)} ({Counter(t['kind'] for t in turns)['mid-turn']} typed mid-turn, {Counter(t['kind'] for t in turns)['answer']} question answers)")
     key = api_key()
 
     def judge(i):
@@ -135,7 +203,7 @@ def main():
         reads += not hit and top >= READ
         if hit:
             signals.append({"turn": t["n"], "flags": hit, "area": a["area"]["choice"], "p": round(top, 2),
-                            "emphatic": t["emphatic"], "human": t["human"][:220], "failed_before": turns[i - 1]["failed"][:2] if i else []})
+                            "emphatic": t["emphatic"], "kind": t["kind"], "human": t["human"][:220], "failed_before": turns[i - 1]["failed"][:2] if i else []})
         if a["request"]["choice"] != "none":
             asks.append({"turn": t["n"], "kind": a["request"]["choice"], "conf": a["request"]["conf"], "human": t["human"][:160]})
     signals.sort(key=lambda s: (-s["p"], -s["emphatic"]))
@@ -143,7 +211,7 @@ def main():
 
     print(f"\nSIGNALS: {len(signals)} of {len(turns)} turns above {LEAD} ({reads} more in the {READ}-{LEAD} band: read those turns yourself)")
     for s in signals:
-        print(f"  t{s['turn']:<3} {','.join(s['flags']):<28} {s['area']:<14} p={s['p']}  {s['human']!r}")
+        print(f"  t{s['turn']:<3} {','.join(s['flags']):<28} {s['area']:<14} p={s['p']}  {'[' + s['kind'] + '] ' if s['kind'] != 'typed' else ''}{s['human']!r}")
     print(f"\nTOOL FAILURES: {sum(fails.values())} total, {len(fails)} shapes")
     for f, c in fails.most_common(8):
         print(f"  {c:>3}x {f}")
