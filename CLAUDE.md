@@ -76,3 +76,18 @@ returns nothing useful (e.g. the language server isn't running for that repo).
 # graphify
 - **graphify** — any input to knowledge graph. Trigger: `/graphify`. The CLI lives at
   `~/.local/bin/graphify` (`graphify query|explain|path`); there is no SKILL.md for it.
+
+## Repo hygiene and testing — house rule (2026-10-23)
+
+- **Worktrees are disposable.** Remove yours as soon as its work is merged or abandoned
+  (`git worktree remove`, then delete the branch). `wt-clean` runs at session start; don't leave work for it.
+- **Few markdown files.** Don't create new .md files (plans, handoffs, reports, summaries) in repos —
+  put it in the PR, the commit, or an existing doc. When you see stale, duplicated or dated docs, delete
+  or merge them (`document-consolidation` / `qa DOCS`). README + a handful of owner docs is the target.
+- **Tests: end-to-end and smoke only.** Don't write new unit or integration tests. Prove behavior with
+  E2E tests that drive the real app (`qa STORIES`, Playwright via `pw`) and fast smoke checks
+  (it boots, the key route answers, the CLI runs). For a standalone script, its smoke test is the E2E.
+- **Minimal CI/CD.** One pipeline: build, smoke, E2E, deploy. No new jobs, matrices or workflows
+  unless the user asks.
+- **Better code over more code.** Reuse an existing helper/component before writing one; extract a
+  shared one when the second copy appears; delete dead code you touch.

@@ -1,6 +1,6 @@
 ---
 name: presentation_maker
-description: Enhanced Presentation Formatter Skill
+description: Turn raw notes, research, specs or any markdown into a polished, color-coded HTML presentation page, with no questions asked. Use when the user wants content "formatted", "made presentable", or turned into an HTML one-pager to share. Not for .pptx decks (use pptx).
 context: fork
 ---
 
