@@ -1,37 +1,68 @@
-"""signals.py must never report a clean harvest it did not measure.
+"""Offline reporter checks: absent evidence stays invalid; optional extractor fields are optional.
 
-Found 2026-09-27: harness-extractor 1.0.0 reads a Codex rollout as 0 turns and exits 0, and
-signals.py printed "0 signals" on a session whose human had asked "did you merge and deploy??"
-twice. Zero turns read means unable to measure: exit 2. No network or key needed; it exits
-before any Jev call.  Run: python3 ~/.claude/skills/harvest/test_signals.py
+Run: python3 skills/harvest/test_signals.py. No extractor, key, or network needed.
 """
-import subprocess, sys, tempfile
+import contextlib
+import io
+import json
+import sys
+import tempfile
+import types
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
-    f.write('{"type":"summary"}\n')
-r = subprocess.run([sys.executable, str(Path(__file__).with_name("signals.py")), f.name], capture_output=True, text=True)
-assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
-assert "unable to measure" in r.stderr, r.stderr
-print("ok — a transcript with no readable turns exits 2, not 0 signals")
+# Isolate both external boundaries before loading the reporter. The extractor's
+# current turns carry n/human/reply/failed/emphatic/at, but no `kind` field.
+hunt = types.ModuleType("hunt")
+hunt.api_key = Mock(return_value="offline-test")
+hunt.ask = Mock(return_value={
+    "answers": {
+        "corrects": {"noul": 0.9},
+        "reask": {"noul": 0.1},
+        "doubts_claim": {"noul": 0.1},
+        "wants_depth": {"noul": 0.1},
+        "area": {"choice": "incomplete", "confidence": 0.9},
+        "request": {"choice": "code_change", "confidence": 0.9},
+    },
+    "model": "offline-mock",
+})
+signals = types.ModuleType("signals")
+source = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("signals.py")
+with patch.dict(sys.modules, {"hunt": hunt}):
+    exec(compile(source.read_text(), str(source), "exec"), signals.__dict__)
 
-# --- 2026-09-29 (session 3d5863e4): the instrument was blind to mid-turn messages and question answers.
-# It printed "human turns: 7" and never judged "you've added unnecessary guard rails which has nerfed
-# the tool", the session's most important correction. Runs on the real transcript; no Jev, no network.
-sys.path.insert(0, str(Path(__file__).parent))
-import signals  # noqa: E402
+with tempfile.TemporaryDirectory() as directory:
+    transcript = Path(directory) / ".codex/sessions/rollout.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text('{"type":"summary"}\n')
 
-REAL = Path.home() / ".claude/projects/-Users-arkashjain-Developer-todo-Chantanl-175/3d5863e4-feaf-4569-a533-2caa1e5717bc.jsonl"
-if not REAL.exists():
-    print(f"SKIPPED (NOT PASSED): real-transcript check needs {REAL}; the blind-spot guard did not run")
-    sys.exit(0)
-_, turns = signals.load_turns(REAL)
-kinds = [t.get("kind", "typed") for t in turns]
-nerf = [t for t in turns if "nerfed" in t["human"]]
-buyers = [t for t in turns if t.get("kind") == "answer" and "buyers or sellers" in t["human"]]
-assert len(turns) > 7, f"only {len(turns)} human turns: mid-turn messages / answers are being dropped again"
-assert nerf and nerf[0].get("kind") == "mid-turn", "the 'nerfed' mid-turn correction is not among the human turns"
-assert buyers, "no AskUserQuestion answer containing 'buyers or sellers' among the human turns"
-# subagent hand-backs and task-notifications are also queued_commands: they must NOT count as human
-assert not [t for t in turns if t["human"].startswith(("<task-notification>", "<agent-message"))], "harness notices counted as human turns"
-print(f"ok — {len(turns)} human turns ({kinds.count('typed')} typed, {kinds.count('mid-turn')} mid-turn, {kinds.count('answer')} answers); 'nerfed' + 'buyers or sellers' present")
+    def run(turns):
+        red = {"meta": {"session": "offline-signals"}, "turns": turns}
+        extracted = types.SimpleNamespace(returncode=0, stdout=json.dumps([red]))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(sys, "argv", [str(source), str(transcript)]), \
+                patch.object(signals.subprocess, "run", return_value=extracted), \
+                patch.object(signals.tempfile, "gettempdir", return_value=directory), \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            try:
+                signals.main()
+            except SystemExit as result:
+                return result.code, stdout.getvalue(), stderr.getvalue()
+        raise AssertionError("reporter did not preserve its exit-code contract")
+
+    code, stdout, stderr = run([])
+    assert code == 2 and "unable to measure" in stderr, (code, stdout, stderr)
+    hunt.api_key.assert_not_called()
+    hunt.ask.assert_not_called()
+    print("ok — zero extracted human turns exits 2 before Jev")
+
+    code, stdout, stderr = run([{
+        "n": 1, "at": "2026-10-07T00:00:00Z", "human": "You missed the tests?? Fix them.",
+        "reply": "", "failed": [], "emphatic": True,
+    }])
+    assert code == 0 and not stderr, (code, stdout, stderr)
+    assert "SIGNALS: 1 of 1" in stdout and "ASKS: 1 requests" in stdout, stdout
+    report = json.loads((Path(directory) / "harvest-signals-offline-signals.json").read_text())
+    assert report["signals"][0]["turn"] == 1 and report["asks"][0]["kind"] == "code_change", report
+    hunt.ask.assert_called_once()
+    print("ok — a current extractor turn without optional kind is judged and reported")

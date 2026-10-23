@@ -111,9 +111,12 @@ branches that have no upstream), and your open PRs with their check state. Those
 but not yet on the default branch. It ends with `SAFE TO END: yes|no — <reason>`. Step 9 quotes
 that line verbatim. Never write it by hand.
 
-Then act on what it prints: prune worktrees, delete branches whose PR is merged, commit
-any dirty agent-instruction file. **Deleting a branch or worktree is a blast-radius
-action — name it and confirm before each sweep; the script deliberately deletes nothing.**
+Then run `wt-clean`. It removes, without asking, every worktree
+that is clean, idle 6h+, has no open PR, and has landed. The user asked for automatic cleanup
+on 2026-10-23, after 34 worktrees were left across 9 repos. It keeps dirty and unpushed
+worktrees and lists them, so commit or discard those yourself. Commit any dirty
+agent-instruction file. Deleting a remote branch, or a worktree that wt-clean kept,
+is still a blast-radius action: name it and confirm.
 
 Do not re-derive this by hand. Harvests of 2026-08-10 found branch/worktree cleanup
 re-enumerated from scratch in eight sessions across five repos, human-initiated in most

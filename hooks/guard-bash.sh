@@ -8,6 +8,7 @@
 #      Monitor / run_in_background instead of sleep-then-poll.
 #   2. `cd <path> &&` at command start, or `; cd <path>` / `&& cd <path>` later:
 #      cwd leaks into the next call; use absolute paths, `git -C`, `uv --directory`.
+#   4. pkill / killall / kill $(pgrep …): name-matched kills hit other sessions.
 #   3. `git commit` while CHERRY_PICK_HEAD exists in the target repo. On
 #      2026-09-21 a fixer agent cherry-picked another session's commit
 #      (267da99e, deriq page-context) into the shared jev/fix-all worktree; it
@@ -24,13 +25,40 @@ if printf '%s' "$cmd" | grep -Eq '(^|[^[:alnum:]_./-])sleep[[:space:]]+[0-9]'; t
     echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: 'sleep N' found. Do not sleep-then-poll; use the Monitor tool with an until-loop, or run_in_background and wait for the notification." >&2
     exit 2
 fi
+# Same wait, renamed to dodge the rule above. 2026-10-23 harvest of 14 days of Claude transcripts:
+# `perl -e 'select(undef,undef,undef,N)'` 540x and `read -t N` 145x, versus 111 blocked `sleep N`.
+if printf '%s' "$cmd" | grep -Eq 'select\(undef|(^|[;&|[:space:]])read[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*-t[[:space:]]*[0-9]'; then
+    echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: a disguised sleep (perl select / read -t). Same rule as 'sleep N': use the Monitor tool with an until-loop, or run_in_background." >&2
+    exit 2
+fi
 if printf '%s' "$cmd" | grep -Eq '(^[[:space:]]*cd[[:space:]]+[^;&|]+&&)|((;|&&)[[:space:]]*cd[[:space:]]+[^;&|]+(;|&&|$))'; then
     echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: 'cd X &&' / '; cd X' chain found. The harness resets cwd between calls and the chain leaks it into the next command; use an absolute path, 'git -C <path>', or 'uv --directory <path>'." >&2
+    exit 2
+fi
+# 2026-10-17 (Spot missions #821/#823 running side by side): two lanes ran
+# `pkill -f "bun test --isolate"` and `pkill -f next-server`, which can kill the OTHER
+# session's web gate and dev server and make its run report a false red. Kill only a PID
+# you recorded at launch (`echo $! > /tmp/<lane>.pid`; `kill "$(cat /tmp/<lane>.pid)"`).
+if printf '%s' "$cmd" | grep -Eq '(^|[;&|(`][[:space:]]*|sudo[[:space:]]+)(pkill|killall)([[:space:]]|$)' \
+   || printf '%s' "$cmd" | grep -Eq 'kill[^;&|]*(\$\(|`)[[:space:]]*(pgrep|pidof)' \
+   || printf '%s' "$cmd" | grep -Eq '(pgrep|pidof)[^;&]*\|[[:space:]]*xargs([[:space:]]+-[^[:space:]]+)*[[:space:]]+kill'; then
+    echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: pkill/killall (or kill via pgrep/pidof) matches processes by name and can kill OTHER sessions' dev servers and test runs (2026-10-17). Record your own PID at launch and use 'kill <pid>'." >&2
     exit 2
 fi
 # Session afac82d1 (2026-09-27): a sub-agent meant to close its own sessions ran
 # `playwright-cli close-all`, which closes EVERY playwright-cli session on the machine,
 # including other lanes' logged-in browsers. Name the session instead.
+# 2026-10-02 (Profectus launch train): a backgrounded compound command ran
+# `make -C $I verify.sg; ...; ./scripts/check-tracked-artifacts.sh; ./scripts/check-evidence-policy.sh`
+# — every other step named the worktree, the two relative ones ran from the
+# harness cwd (apps/api) and exited 127 "No such file", which the log then
+# carried as ART_EXIT=127 next to green steps. A relative ./scripts/ path in a
+# command that names a worktree is always the wrong tree: use `env -C <wt>
+# ./scripts/x.sh` or the absolute path.
+if printf '%s' "$cmd" | grep -q '/\.claude/worktrees/' && printf '%s' "$cmd" | grep -Eq '(^|[;&|(][[:space:]]*)\./scripts/'; then
+    echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: relative './scripts/...' in a command that names a .claude/worktrees/ path. The harness cwd is not that worktree (2026-10-02: exit 127 next to green steps). Use 'env -C <worktree> ./scripts/x.sh' or the absolute path." >&2
+    exit 2
+fi
 if printf '%s' "$cmd" | grep -Eq 'playwright-cli[^;&|]*[[:space:]](close-all|kill-all)([[:space:]]|$)'; then
     echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: 'playwright-cli close-all/kill-all' closes every browser session on this machine, including other lanes'. Close only your own: 'playwright-cli -s=<name> close' (see 'playwright-cli list')." >&2
     exit 2

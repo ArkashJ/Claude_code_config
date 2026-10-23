@@ -41,7 +41,11 @@ rather than improvising them: /map for unfamiliar ground, /featuredev for a feat
    notice context pressure, checkpoint immediately, write a continuation prompt INTO the PR
    (state, next steps, open questions), and either delegate remaining phases to fresh subagents
    or wrap. Never start a delicate irreversible operation you might not finish.
-4. **Delegate hard, tiered.** This run should be mostly orchestration: haiku lanes for sweeps
+4. **Every subagent prompt carries the shell rules:** no `cd X &&` (absolute paths, `git -C`,
+   `bun --cwd`), never `sleep`, browsers through `pw`, gates through
+   `once`. 1,288 of the 1,331 hook-blocked `cd` calls in 14 days came from subagents whose
+   prompts lacked this line.
+5. **Delegate hard, tiered.** This run should be mostly orchestration: haiku lanes for sweeps
    and summaries, sonnet lanes for well-specified implementation, strongest model for judgment
    and adversarial verification. Dispatch isolation per /start rule 4. Prefer many small pushed
    commits from lanes over large unpushed work — unpushed lane work dies with the lane. A lane's
@@ -49,12 +53,12 @@ rather than improvising them: /map for unfamiliar ground, /featuredev for a feat
    clean and its commits are reachable from the branch before believing its report (2d8120f4: a
    killed agent's 9 dirty files sat in a worktree while the session believed the work landed;
    3 of 8 lanes died silently in the same run).
-5. **Blast radius still holds.** Merges, deploys, bulk deletes, prod data mutations are NEVER
+6. **Blast radius still holds.** Merges, deploys, bulk deletes, prod data mutations are NEVER
    autonomous — queue them as the batched questions at the end, with everything staged so each
    is one approved command away.
    Hosted CI is never something to wait on: local gates are the evidence, and a merge blocked
    only on hosted CI goes through `--admin` once the human approves the merge (/wrap step 1).
-6. **Adversarial pass before final wrap.** Before ending, run a skeptical
+7. **Adversarial pass before final wrap.** Before ending, run a skeptical
    review of this run's own output (/investigate, or fresh agents prompted to refute). Fix what it finds, then
    do the final /wrap: full distillation, board/issues/changelog, handoff, final status line,
    and the batched decision list — each with a recommendation.

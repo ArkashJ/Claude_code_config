@@ -5,23 +5,12 @@ description: Use when a UI must be tested against the states and content it will
 
 # UI Stress
 
-## The rule that makes this cheap
+## Probe before visual review
 
-**Probe before you look.**
-
-A script can tell you a button is 18px tall, that the page scrolls sideways at
-390px, that a modal covers the submit button, that a list renders empty with no
-message. That costs no tokens. Vision is for the residual — is this readable,
-does the user have a next step, does the hierarchy hold.
-
-Most UI-testing attempts invert this: build a harness page, screenshot
-everything, eyeball it. That burns the entire budget on cells a script would
-have cleared in milliseconds, so the sweep stays small and most states never get
-rendered at all.
-
-Probes are free. **Ration screenshots, never probes.** A sweep of 6 routes × 6
-states × 2 widths is 72 probe runs, seconds of wall time, and it is the right
-size for a first pass.
+Measure target size, overflow, occlusion and empty-state behavior with probes;
+use visual review for readability, hierarchy and the user's next action.
+Budget screenshots and probe execution separately. Six routes × six states ×
+two widths produce 72 cells; elapsed time depends on the app and readiness.
 
 ## Where this sits
 
@@ -30,10 +19,10 @@ size for a first pass.
 | `design-director` | Which surfaces exist, and what good looks like (`DESIGN.md`, the survey) |
 | `impeccable` | Building and redesigning the UI |
 | `playwright-cli` | The browser transport — sessions, `route`, `run-code`, `vcheck` |
+| `qa` | The measuring CLI: `qa verify <repo> --base URL --states --widths 390,1440` forces the states and widths it can and reports each unreached cell as unmeasured |
 | **`ui-stress`** | **What happens to those surfaces under content and states nobody built for** |
 
-Every other tool walks the app logged-in, data-present, network-fine, desktop.
-The bugs live in the states none of them render. That is this skill's territory.
+Derive additional states from the application where the CLI's modeled states do not reach.
 Severities are `P0`–`P3` matching design-director, so findings append cleanly to
 a `DESIGN-AUDIT.md`.
 
@@ -56,9 +45,11 @@ better evidence: they exercise real composition, routing, and data flow.
 
 Pick surfaces by blast radius, not by what is convenient: routes on a money,
 auth, or write path; components imported in the most places (count the imports);
-whatever git touched most recently.
+whatever git touched most recently. To rank them by where this repo's UI bugs
+actually escaped before, run the `qa` skill's HISTORY mode first
+([Jev entry point](../qa/jev.md)).
 
-Then read `references/state-matrix.md` and derive states from what each surface
+Then read [references/state-matrix.md](references/state-matrix.md) and derive states from what each surface
 **actually accepts** — its props, its API calls, its query params. Skip cases a
 surface cannot receive. Do not pad the matrix to look thorough.
 
@@ -68,7 +59,8 @@ supports it. A full states × widths × themes cross product is waste.
 
 ## Phase 2 — Force and probe
 
-Three engines, in yield order. Exact commands are in `references/state-matrix.md`.
+Four engines, in yield order. Exact commands are in
+[references/state-matrix.md](references/state-matrix.md).
 
 1. **Network forcing** — `playwright-cli route` returns empty / one / many / 500 /
    403 / slow / malformed to the real screen. Highest yield: this is where the
@@ -76,12 +68,17 @@ Three engines, in yield order. Exact commands are in `references/state-matrix.md
 2. **Content stress** — mutate the live DOM: multiply text ×5, inject an
    unbreakable 60-character string, break every image `src`, inflate numbers. No
    fixtures required, and it stresses the real layout.
-3. **Viewport and theme** — resize, toggle `prefers-color-scheme`.
+3. **Viewport and theme** — resize, use the app's theme control or its declared
+   storage key; media emulation only works when the app follows it.
+4. **Keyboard reachability** — traverse the primary action and check focus.
 
-Probe every cell:
+Start with `qa verify <repo> --base URL --states --widths 390,1440`: it exits
+`0` clean within the measured scope, `1` on gating findings, `2` when it could not
+run, and `2` is never a pass. Use the engines above for what it cannot force
+(content stress, per-component states, real data shapes). Probe every cell:
 
 ```bash
-playwright-cli -s=stress run-code --filename=~/.claude/skills/ui-stress/probe.js
+playwright-cli -s=stress run-code --filename "$HOME/.agents/skills/ui-stress/probe.js"
 ```
 
 Returns JSON: findings grouped by rule, severity-sorted, three examples each.
@@ -109,8 +106,8 @@ elements. That is still worth knowing — it means no token reached that element
 
 ## Phase 4 — Fix at the shared node
 
-- **Reproduce or drop it.** A failure predicted from reading source is a
-  hypothesis. Get it on screen or delete the finding.
+- **Reproduce or retain the gap.** A failure predicted from source is a
+  hypothesis. Confirm it on screen, dismiss it with evidence, or mark it unmeasured.
 - **Fix once, where all callers route through.** The same wrong gray on 12 screens
   is one token fix, not twelve patches. Grep every caller before editing.
 - **Re-probe the exact cell** — same route, state, viewport, theme — plus the
@@ -147,6 +144,6 @@ and the build succeeds.
 
 ## Maintaining the probe
 
-`bash ~/.claude/skills/ui-stress/selftest.sh` serves a fixture with one planted
+`bash ~/.agents/skills/ui-stress/selftest.sh` serves a fixture with one planted
 instance of every rule and fails if any rule stops firing. Run it after editing
 `probe.js`.

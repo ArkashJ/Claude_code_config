@@ -5,6 +5,17 @@ description: Turn a session's mistakes into executable guards — scripts and bu
 
 # Harvest
 
+## Avoid creating more upkeep
+
+An ordinary session does not require new guards, tests, docs, `.qa` families or cross-repo
+sweeps. First ask whether the failure is recurring and costly. Prefer fixing the existing
+validation or verification path; add one durable behavioral regression only when it prevents
+a material repeat. A source-text assertion that freezes current implementation is usually
+maintenance debt. Use source checks only for a genuine structural invariant that runtime
+checks cannot cover. Steps 0b/0c are optional, scoped to a requested audit or a demonstrated
+shared failure mechanism; do not run every family across every repo by default.
+
+
 Harvest the learnings from this session (or a named scope) and convert them into things that
 RUN. A lesson written into a document decays; a lesson written into a test fails a build.
 
@@ -56,10 +67,14 @@ F tool failures, jev: Q requests / E errors / model`. That line answers "did you
 Read every turn in the 0.30–0.70 band yourself. Jev screens; you decide.
 Across sessions (a repo's recent history, or "everything"): run `harness-extractor --repeats <files>`
 over fork-deduped transcripts, and include only the mechanisms that recur.
+Before counting a cross-session corpus, classify the files. On 2026-10-23, 3,082 of 3,414 Codex
+rollouts were `guardian` risk-review subagents, and 1,526 of 1,603 Claude files were subagent
+transcripts. Count failures from the output text as well as the exit code: playwright-cli exits 0
+on `### Error`, so 122 calls carried an error flag but 327 had actually failed.
 
 ### 0b. Carry each fix to its siblings, across repos: a calibrated Jev sweep
 
-Every bug fixed this session is a pattern, and its siblings are in this repo and in other repos.
+For a demonstrated recurring mechanism, inspect likely sibling sites in the requested scope.
 A notifications fix becomes "is the recipient list filtered by role?", asked at every notify call
 everywhere. The machinery is `~/.claude/skills/qa/sweep.py` (see qa SWEEP). Per mechanism:
 
@@ -84,7 +99,7 @@ why step 5 is not optional.
 
 ### 0c. Jev over the code this session touched, in this repo
 
-Every session is fresh, so the end of each one is the only time its own changes get a deep look.
+When an audit or demonstrated risk calls for this pass, limit it to the affected code.
 For React/TanStack code: `python3 ~/.claude/skills/qa/hunt.py <repo> --src <src> --since <session start>`
 judges every hook surface in the files this session changed or left uncommitted, against the
 generic checks and the repo's `.qa/invariants.json`. The session start is the `start` field in

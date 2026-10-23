@@ -45,8 +45,15 @@ keyboard-only traversal of the primary action.
 
 ## Engine 1 — Network forcing (highest yield)
 
-Force the real screen into states nobody built. Set the route, then reload, then
-probe.
+Use a disposable non-production target. Intercept only the surface's observed
+read endpoints, with envelopes matching its actual API; do not intercept auth
+paths or writes. The wildcard examples below need narrowing to those paths.
+Set the route, reload, confirm interception occurred, then probe. An unchanged
+column without intercepted traffic is unmeasured, never passing.
+
+A mock service worker can bypass `page.route()`. Prefer `qa verify --states`
+for modeled states; its fetch/XHR forcing runs before the app scripts. For
+manual cases, use the app's own fixtures or prove the interception works.
 
 ```bash
 playwright-cli -s=stress route "**/api/items*" --body='[]' --content-type=application/json
@@ -128,8 +135,13 @@ playwright-cli -s=stress run-code "async page => { await page.emulateMedia({ col
 playwright-cli -s=stress run-code "async page => { await page.emulateMedia({ reducedMotion: 'reduce' }); }"
 ```
 
-Zoom to 200% (finds layouts that break on text scaling, distinct from a narrow
-viewport):
+Media emulation does not engage themes that use a storage key or explicit
+toggle. Use the app's own theme control and confirm the theme marker/computed
+colors before labeling the cell dark.
+
+The following CSS zoom checks a scaled layout; it is not browser zoom or an
+independent text-scaling accessibility check. Use actual browser zoom separately
+when that behavior is in scope:
 
 ```bash
 playwright-cli -s=stress run-code "async page => { await page.evaluate(() => document.body.style.zoom = '2'); }"
@@ -171,5 +183,5 @@ for each surface:
   unroute                    # always reset before the next state
 ```
 
-Probing is free; screenshotting is not. Sweep the whole matrix with the probe,
+Probing and screenshots both take time. Sweep the whole matrix with the probe,
 then screenshot only what it flagged.

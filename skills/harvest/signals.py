@@ -162,6 +162,8 @@ def load_turns(path, cmd=None):
     turns = [t for t in red["turns"] if not t["human"].startswith("[invoked ")]
     if turns and "/.codex/" not in str(path):  # Codex rollouts have neither queued_command nor AskUserQuestion
         turns = merge_turns(turns, extra_turns(path))
+    for turn in turns:
+        turn.setdefault("kind", "unclassified")  # extractor did not classify this optional field
     return red, turns
 
 
@@ -172,7 +174,7 @@ def main():
     red, turns = load_turns(path)
     if not turns:
         sys.exit(print(f"0 human turns read from {path} by harness-extractor: unable to measure (Codex needs extractor > 1.0.0)", file=sys.stderr) or 2)
-    print(f"transcript ({'codex' if '/.codex/' in str(path) else 'claude'}): {path}\nsession: {red['meta'].get('session')}  start: {red['meta'].get('start')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)} ({Counter(t['kind'] for t in turns)['mid-turn']} typed mid-turn, {Counter(t['kind'] for t in turns)['answer']} question answers)")
+    print(f"transcript ({'codex' if '/.codex/' in str(path) else 'claude'}): {path}\nsession: {red['meta'].get('session')}  start: {red['meta'].get('start')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)} ({Counter(t['kind'] for t in turns)['mid-turn']} typed mid-turn, {Counter(t['kind'] for t in turns)['answer']} question answers, {Counter(t['kind'] for t in turns)['unclassified']} unclassified)")
     key = api_key()
 
     def judge(i):

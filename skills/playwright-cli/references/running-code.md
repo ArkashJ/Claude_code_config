@@ -21,6 +21,10 @@ playwright-cli run-code --filename=./my-script.js
 The code must be a single function expression, it is wrapped in `(...)` and evaluated.
 import/export/require syntax is not supported.
 
+The code runs in an isolated context, not in a full Node.js environment. `require`, `process` and Node modules are not
+available. Timers (`setTimeout`, `setInterval`), `fetch`, `URL`, `Buffer`, `crypto`, `AbortController`, `TextEncoder`
+and `TextDecoder` are available.
+
 ## Geolocation
 
 ```bash
@@ -90,9 +94,9 @@ playwright-cli run-code "async page => {
 ## Wait Strategies
 
 ```bash
-# Prefer an application-specific terminal state
+# Wait for network idle
 playwright-cli run-code "async page => {
-  await page.getByText('Order confirmed', { exact: true }).waitFor();
+  await page.waitForLoadState('networkidle');
 }"
 
 # Wait for specific element
@@ -110,8 +114,6 @@ playwright-cli run-code "async page => {
   await page.locator('.result').waitFor({ timeout: 10000 });
 }"
 ```
-
-Do not use `networkidle` as a generic definition of “ready.” Use it only when network quiet is an explicit, validated contract for that application; it may never arrive on WebSocket/long-polling pages and may arrive before delayed business state is committed.
 
 ## Frames and Iframes
 
