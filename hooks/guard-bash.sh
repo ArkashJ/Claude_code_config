@@ -31,6 +31,12 @@ if printf '%s' "$cmd" | grep -Eq 'select\(undef|(^|[;&|[:space:]])read[[:space:]
     echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: a disguised sleep (perl select / read -t). Same rule as 'sleep N': use the Monitor tool with an until-loop, or run_in_background." >&2
     exit 2
 fi
+# Empty-body wait loop, the inverse dodge: `until grep -q X log; do :; done` spins a CPU and forks grep
+# thousands of times a second. 2026-10-24: 11 of them in one session plus a helper's took load to 105 on 8 CPUs.
+if printf '%s' "$cmd" | grep -Eq '(^|[;&|[:space:]])do[[:space:]]+(:|true)?[[:space:]]*;?[[:space:]]*done([;&|[:space:]]|$)'; then
+    echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: empty-body busy-wait loop ('do :; done'). It spins a CPU forever; use run_in_background and wait for its notification, or a Monitor until-loop with 'timeout 15 tail -f /dev/null' as the pause." >&2
+    exit 2
+fi
 if printf '%s' "$cmd" | grep -Eq '(^[[:space:]]*cd[[:space:]]+[^;&|]+&&)|((;|&&)[[:space:]]*cd[[:space:]]+[^;&|]+(;|&&|$))'; then
     echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: 'cd X &&' / '; cd X' chain found. The harness resets cwd between calls and the chain leaks it into the next command; use an absolute path, 'git -C <path>', or 'uv --directory <path>'." >&2
     exit 2
@@ -62,6 +68,25 @@ fi
 if printf '%s' "$cmd" | grep -Eq 'playwright-cli[^;&|]*[[:space:]](close-all|kill-all)([[:space:]]|$)'; then
     echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: 'playwright-cli close-all/kill-all' closes every browser session on this machine, including other lanes'. Close only your own: 'playwright-cli -s=<name> close' (see 'playwright-cli list')." >&2
     exit 2
+fi
+# 2026-10-24 (lane-1 session c569eb61): `gh pr merge 1931 --squash --delete-branch` deleted the
+# branch another lane's open #1936 was stacked on; GitHub auto-CLOSED #1936 (not retargeted), and
+# it had to be restored by recreating the ref, reopening and retargeting. Retarget children first.
+if printf '%s' "$cmd" | grep -Eq 'gh[[:space:]]+pr[[:space:]]+merge[[:space:]]' && printf '%s' "$cmd" | grep -q -- '--delete-branch'; then
+    gh_bin=${GUARD_GH:-gh}
+    pr=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+([0-9]+).*/\1/p' | head -1)
+    repo=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+pr[[:space:]]+merge[[:space:]].*(-R|--repo)[[:space:]]+([^[:space:]]+).*/\2/p' | head -1)
+    if [ -n "$pr" ]; then
+        rflag=(); [ -n "$repo" ] && rflag=(-R "$repo")
+        head=$("$gh_bin" pr view "$pr" "${rflag[@]}" --json headRefName -q .headRefName 2>/dev/null || true)
+        if [ -n "$head" ]; then
+            kids=$("$gh_bin" pr list "${rflag[@]}" --base "$head" --state open --json number -q '[.[].number]|join(" ")' 2>/dev/null || true)
+            if [ -n "$kids" ]; then
+                echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: open PR(s) $kids are based on '$head'; --delete-branch would make GitHub CLOSE them (2026-10-24: #1936 closed this way). Retarget first: 'gh pr edit <child> --base <new-base>', or merge without --delete-branch." >&2
+                exit 2
+            fi
+        fi
+    fi
 fi
 if printf '%s' "$cmd" | grep -Eq '(^|[;&|][[:space:]]*)git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit([[:space:]]|$)'; then
     dir=$(printf '%s' "$cmd" | sed -nE 's/.*git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+commit.*/\1/p' | head -1 | tr -d "\"'")

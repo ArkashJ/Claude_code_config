@@ -21,6 +21,13 @@ check 2 "disguised sleep" 'read -t 30 < /dev/null; ./check'
 check 2 "disguised sleep" 'while ! curl -s x; do read -r -t 2 _ <> <(:); done'
 check 0 "" 'while read -r line; do echo "$line"; done < f'
 check 0 "" 'grep -n "read -t" docs/notes.md'
+# empty-body busy-wait: 2026-10-24, 11 spinning `until grep ...; do :; done` loops, load 105 on 8 CPUs
+check 2 "busy-wait" 'until grep -qE "passed|failed" /tmp/l1.log; do :; done; tail -25 /tmp/l1.log'
+check 2 "busy-wait" 'while ! test -f /tmp/done; do true; done'
+check 2 "busy-wait" 'until [ -s /tmp/x ]; do : ; done'
+check 0 "" 'until grep -q ok /tmp/x; do timeout 15 tail -f /dev/null; done'
+check 0 "" 'for f in a b; do echo "$f"; done'
+check 0 "" 'grep -n "do :; done" notes.txt'
 check 2 "cd X" 'cd /tmp/x && make'
 check 2 "cd X" 'ls; cd /tmp/x; make'
 check 2 "cd X" 'true && cd /tmp/x && make'
@@ -69,4 +76,18 @@ check 2 "cherry-pick is in progress" "git -C '$T' add -A; git -C $T commit -m fo
 check 0 "" "git -C $T cherry-pick --abort"
 check 0 "" "git -C $T status"
 rm -rf "$T"
+# merge --delete-branch with stacked children: 2026-10-24, deleting #1931's branch CLOSED child #1936.
+# A stub gh answers: PR 10's head is "base-br"; "base-br" has open child 11, any other base has none.
+S=$(mktemp -d); cat > "$S/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"pr view 10"*) echo base-br ;; *"pr view 20"*) echo lonely-br ;;
+  *"--base base-br"*) echo 11 ;; *) echo "" ;;
+esac
+STUB
+chmod +x "$S/gh"; export GUARD_GH="$S/gh"
+check 2 "Retarget first" 'gh pr merge 10 -R o/r --squash --delete-branch --admin'
+check 0 "" 'gh pr merge 20 -R o/r --squash --delete-branch --admin'
+check 0 "" 'gh pr merge 10 -R o/r --squash --admin'
+unset GUARD_GH; rm -rf "$S"
 [ $fail = 0 ] && echo "guard-bash self-test: PASS" || { echo "guard-bash self-test: FAIL"; exit 1; }
