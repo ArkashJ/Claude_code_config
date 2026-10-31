@@ -3,14 +3,14 @@
 #
 #   repo-hygiene.sh [--brief] [--landed] [DIR]
 #
-# --landed (used by the /mission wrap) adds: dirty files in any worktree, and local commits that exist on
+# --landed (used by /wrap) adds: dirty files in any worktree, and local commits that exist on
 # no remote. It ends with ONE line, `SAFE TO END: yes` or `SAFE TO END: no — <reason>`, computed
 # here so the model cannot hand-write it. Studied sessions 9fc47df2, b47591fd, 19df0d01, a3ec5016:
 # the human asked "do i end session" / "are the files on main or no??" AFTER a wrap had reported
 # done, because the wrap's own summary was the only evidence and it had not looked.
 #
 # Deletes nothing, ever. Blast radius belongs to a human; this only removes the excuse
-# that nobody knew. Exit 1 = something is stale, so /start and the /mission wrap can gate on it.
+# that nobody knew. Exit 1 = something is stale, so /start and /wrap can gate on it.
 #
 # --brief prints ONE line and is SILENT when clean: it runs from the SessionStart hook,
 # where every line costs context in all 100+ sessions, most of which are clean.

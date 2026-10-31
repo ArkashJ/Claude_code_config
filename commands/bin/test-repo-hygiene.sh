@@ -107,7 +107,7 @@ kill "$live_pid" 2>/dev/null
 wait "$live_pid" 2>/dev/null
 git -C "$D/repo" worktree remove --force "$D/live-wt" >/dev/null 2>&1
 
-# 6-8. --landed: the /mission wrap's SAFE TO END line must be computed from the tree, and must say "no"
+# 6-8. --landed: /wrap's SAFE TO END line must be computed from the tree, and must say "no"
 # for each way work can exist only on this machine (sessions 19df0d01, a3ec5016: "do i end
 # session" / "are the files on main or no??" asked after a wrap had already reported done).
 runl() { (cd "$D/repo" && PATH="$D/stub:$PATH" bash "$SCRIPT" --landed 2>&1); }

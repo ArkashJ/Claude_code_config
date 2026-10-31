@@ -36,46 +36,17 @@ phase plan is written.
    author's reasoning, prompted to refute) over the run's output. Fix what it finds, then do the
    final wrap.
 
-## Wrap — every phase, and once more at the end
+## Wrap — a short one every phase, the full /wrap at the end
 
-Derive every artifact from git/gh/the enumeration; never hand-write what a command can compute.
-Each phase:
+Each phase boundary:
 - `git status --porcelain` empty: logical commits, pushed, PR current, scratch removed.
 - Checkpoint-log line with a `verify:` certificate; route every `SURPRISE:`/`FALSIFIED:` line to a
   fix, an issue or an explicit discard.
-- `python3 ~/.claude/skills/harvest/signals.py` and report `asks proven X of N`; if the phase changed
-  React/TanStack code, `python3 ~/.claude/skills/qa/hunt.py <repo> --since <phase start>`.
+- The step 2 dynamic QA lines of /wrap for what this phase changed (`--since <phase start>`).
 - Master issue / PR comment: done, not done (`blocked: <cmd>` or `not attempted`), not read.
 
-Final wrap adds:
-- Run the repo's local gates once (`once <cmd>`) and paste the output into the PR.
-- If the repo keeps a `CHANGELOG.md`, add the entry derived from commits/merged PRs since the last
-  one: conclusions only, no state.
-- Issues updated or closed with a link to the proving commit; one new issue per discovered root
-  cause; superseded issues closed with a pointer; board items moved.
-- Docs the change touched: fix drift against code; regenerate any doc that carries values (counts,
-  hosts, DNS, issue numbers) from a readback. Nothing mutable in CLAUDE.md/AGENTS.md.
-- No client names, credentials or confidential content in anything committed or posted.
-- `~/.claude/commands/bin/repo-hygiene.sh --landed`, then `wt-clean`. Deleting a remote branch or a
-  worktree wt-clean kept still needs confirmation.
-- Ask every pending decision in one interactive question call, each with a recommendation.
-- Print the continuation prompt in a fenced block:
-
-```
-/start then: <one-sentence mission>.
-Re-derive before acting: `git -C <repo> fetch --prune && git status --porcelain && gh pr view <n> --json state,mergeable`.
-Done: <3 lines max, each with its verify command>.
-Not done: <each "blocked: <failing command>" or "not attempted">.
-Decisions waiting: <each one approved command away, with a recommendation>.
-Read first: master issue #<n>; PR #<n> checkpoint log.
-```
-
-- Prove each ask with a command: merge `gh pr view <n> --json state,mergedAt`; code `git branch -r
-  --contains <sha>`; issue `gh issue view <n> --json state`; deploy a readback of the NEW behavior
-  (absence of the old string passes on any error page). An unproven ask goes in "Not done".
-- Last lines: branch, HEAD, PR URL + state, issues touched; any "deployed/live" claim needs a fresh
-  readback of the NEW behavior from the serving system in this turn; then the `SAFE TO END:` line
-  copied verbatim from the `--landed` run.
+After the adversarial pass, run /wrap in full: it owns the release (one batched go), the
+changelog, issues, hygiene, asks proven X of N, the continuation prompt and `SAFE TO END:`.
 
 ## Status format — banned: completion percentages
 

@@ -1,176 +1,125 @@
 ---
-description: Close a session — land all work, derive changelog/issues/board from git and gh, hand off into the PR, final gate-output status (no percentages)
+description: Close a session — land, run the dynamic QA gate, release (one batched go), derive changelog/issues/handoff from git and gh, end on a computed SAFE TO END line
 ---
 
-Close this session. The rule for every artifact below: **derive it from the authoritative
-source (git log, diffs, PR state, the enumeration from /start) — never hand-write what can be
-computed, and never write down state that a command can fetch fresh.** Do all applicable steps;
-for any that don't apply, say so in one line. Use cheap-model subagents for the mechanical
-derivations where it helps.
+Close this session. Derive every artifact from git, gh and the /start enumeration; never
+hand-write what a command computes. Run the steps in order. A step that does not apply gets one
+line saying why, never silence. `<start>` is the session start (the `start` field printed by
+`signals.py`, or the first commit time of this session).
 
-## 0. If /harvest ran too: harvest first, wrap consumes it
+## 0. Harvest first, if it ran
 
-Harvest builds and commits guards. Wrap lands, merges, cleans up and hands off. Harvest's
-undispositioned signals go into step 8's "Not done", never silently dropped.
+Harvest builds and commits guards; wrap lands, releases and hands off. Every signal harvest left
+undispositioned goes into step 9's "Not done".
 
-## 0b. The asks ledger: prove every request with a command
+## 1. Land
+
+- `git status --porcelain` ends empty: logical commits (not one blob), scratch out of the tree.
+- Run the repo's local gates once per tree: `once <test|lint|typecheck|verify cmd>`. Paste the
+  output into the PR. Hosted CI is not a gate: do not wait on it, poll it or re-run it.
+- One push per branch, at the end. The draft PR exists and its description is current.
+
+## 2. Dynamic QA gate: run what changed, in the browser and the suite
+
+Each line runs when its condition holds; exit 2 from any of them is "unmeasured", never a pass.
 
 ```bash
-python3 ~/.claude/skills/harvest/signals.py     # skip if harvest just printed ASKS
+Q=~/.claude/skills/qa
+python3 $Q/stories.py check <repo>                      # docs/stories.jsonl exists
+python3 $Q/stories.py run <repo> --since <start>         # runs the E2E journeys of the stories this session's tests cite
+qa verify <repo> --base <running app URL>                # frontend changed and the app is served; then `qa show diff <repo>`
+python3 $Q/hunt.py <repo> --since <start>                # React/TanStack files changed
+python3 $Q/sweep.py run <family> --all-repos             # a bug was fixed and its family is calibrated
 ```
 
-If harvest did not run, still do its step 0c (`hunt.py --since <session start>`) on the code this
-session changed. It is the last Jev look that code gets before the next fresh session.
+A FAIL is fixed now or becomes an issue; it never ships under a "done". Siblings the sweep
+verifies become one issue each in their repo. Never invent a server URL: if the app is not
+running and nothing in the repo starts it, say "browser: unmeasured".
 
-If this session fixed a bug, its siblings in other repos are found with harvest step 0b: a
-calibrated `qa/sweep.py` family run with `--all-repos`. Wrap does not fix them. Each verified
-sibling becomes an issue in its repo or a line in step 8, so the fix carries across repos instead
-of ending with this session.
+## 3. Changelog and docs
+
+- Changelog entry in `CHANGELOG.md` (create it if missing), derived from commits and merged PRs
+  since the last entry: conclusions only ("added X", "fixed Y because Z"), no state. Commit it.
+- Docs the change touched: diff against code or the generated spec and fix drift. Flag, don't
+  silently fix, a claim that was already wrong. Any doc carrying values (counts, hosts, DNS,
+  issue numbers) is regenerated from a readback, never proofread by eye.
+- Nothing mutable in CLAUDE.md/AGENTS.md. No client names, credentials or confidential content in
+  anything committed or posted.
+
+## 4. Release: every wrap, one batched go
+
+Find the release path, in this order: the repo's CLAUDE.md/AGENTS.md release section, a
+`release`/`deploy`/`publish` target in Makefile or package.json scripts, a tag-triggered workflow
+in `.github/workflows`. Then stage the full sequence:
+
+1. Merge: `gh pr merge <n> --squash --delete-branch`. Use `--admin` only when hosted CI alone
+   blocks it, and only with step 1's local gate output in the PR.
+2. Tag, if the repo has tags or a tag-triggered workflow: next semver from `git describe --tags
+   --abbrev=0` (breaking → major, `feat` → minor, else patch), `git tag vX.Y.Z <merge sha> && git
+   push origin vX.Y.Z`, then `gh release create vX.Y.Z --notes "<this wrap's changelog entry>"`.
+   A repo with no tags gets no invented first tag; offer it as a question option instead.
+3. Deploy: the repo's own deploy command, if it has one.
+
+Ask ONCE with the interactive question tool, naming every command above, recommended option
+"go". On go, run them in order and stop at the first failure. Then read each one back:
+`gh pr view <n> --json state,mergeCommit`, `gh release view vX.Y.Z`, and for a deploy, curl the
+live URL for the NEW behavior. A missing old string passes on any error page, so it proves
+nothing. No release path at all: say so in one line.
+
+## 5. Issues and board
+
+Close or update every touched issue with a link to the proving commit or PR. Open one issue per
+discovered-but-unfixed root cause, with evidence. Close superseded issues with a pointer. Move
+board items (`gh project item-edit`) to match.
+
+## 6. Hygiene: run the script, do not re-derive it
+
+```bash
+~/.claude/commands/bin/repo-hygiene.sh --landed   # ends with SAFE TO END: yes|no — <reason>
+wt-clean                                           # removes clean, idle, landed worktrees
+```
+
+Merge state comes from `gh pr list --state merged`; `git branch --merged` lies after a squash.
+Never report cleanup done while an open PR owns a surviving branch. Deleting a remote branch or a
+worktree wt-clean kept needs confirmation; fold it into step 4's question.
+
+## 7. Prove every ask
+
+`python3 ~/.claude/skills/harvest/signals.py` (skip if harvest just printed ASKS). Report
+`asks proven X of N`; an unproven ask goes in "Not done" with its failing command.
 
 | kind | proof |
 |---|---|
-| push / cleanup | `~/.claude/commands/bin/repo-hygiene.sh --landed` (step 6b) |
+| code change | `git branch -r --contains <sha>` |
 | merge | `gh pr view <n> --json state,mergedAt,mergeCommit` |
-| deploy | fresh readback of the NEW behaviour from the serving system (step 9) |
-| issues_board | `gh issue view <n> --json state,projectItems` |
-| handoff | the step 8 block, printed |
-| code_change | the commit SHA is on the remote: `git branch -r --contains <sha>` |
-| study / other | read the turn yourself. These rows never gate ending. |
+| release | `gh release view <tag>` |
+| deploy | readback of the NEW behavior from the serving system, this turn |
+| issue / board | `gh issue view <n> --json state,projectItems` |
+| push / cleanup | `repo-hygiene.sh --landed` |
 
-Report `asks proven X of N`. An unproven ask goes into "Not done" with its failing command.
-Studied follow-ups this answers before they are asked: "did you merge and deploy??", "Are the
-files on main or no??", "did you act on all the changes???", "are the workflows running though
-or not???".
+## 8. Handoff into the PR
 
-## 1. Land the work
+Update the PR description: done, not done, not read (from the /start enumeration), every
+`SURPRISE:`/`FALSIFIED:` line from the checkpoint log routed to a fix, an issue or a discard
+with a reason, and exact next steps. No loose handoff files.
 
-`git status --porcelain` must end empty: commit remaining work (logical commits, not one blob),
-push, and make sure the draft PR exists and is current. Remove scratch artifacts from the tree.
-Batch the push: one push per branch at the end, not one per fix. Every push re-runs hosted CI
-and sometimes a deploy ("you cannot rerun ci cd after every push", Codex 01a0d50e).
-
-**Hosted CI is not a gate (user policy, 2026-09-27).** It costs money and hours; runs were blocked by
-Actions billing in several studied sessions. Run the repo's own local gates (tests, lint, typecheck,
-its `verify`/`check:*` scripts) and paste their output into the PR. Do not wait for hosted CI, poll
-it, or re-run it. When branch protection blocks a merge only on hosted CI, merge with
-`gh pr merge <n> --squash --admin --delete-branch`, citing the local gate output in the PR. A merge
-needs that local evidence; the bypass is not permission to skip it.
-
-## 2. Handoff → PR, not loose files
-
-Distill the rolling "Checkpoint log" comment first: every `SURPRISE:` / `FALSIFIED:` line gets
-routed somewhere in the steps below (docs fix, issue, changelog note) or explicitly discarded
-with a reason — freshness was captured in the log so nothing here relies on memory.
-
-Then update the PR description (or add a final PR comment) with: what's done, what's not, what
-was NOT read or covered (from the /start enumeration), surprises/falsifications hit, and exact
-next steps.
-This is the memory the next session's preflight picks up. No loose handoff markdown files.
-
-## 3. Changelog
-
-Derive the entry from commits/merged PRs since the last changelog entry — titles and diffs, not
-memory. Conclusions only ("added X", "fixed Y because Z"), no state ("currently at version N").
-Write it into `CHANGELOG.md` at the repo root (create the file if the repo lacks one) and commit
-it with the wrap — a changelog that lives only in a PR comment is not a changelog.
-
-## 4. Issues and board
-
-For each issue touched: update or close via `gh issue`, with a link to the proving commit/PR —
-never mark done without the rule-5 verification from /start. Create issues for anything
-discovered-but-not-fixed (one per root cause, with evidence). Move board/kanban items
-(`gh project item-edit`) to match reality.
-
-## 5. % completion — only with a denominator
-
-A percentage requires a countable ledger: X of N enumerated items, with the N named. No ledger →
-report "done / in-progress / not-started" per item instead of a number. "Blocked" is only valid
-with a recorded failing command/response attached; otherwise it is "not attempted".
-
-## 6. API / docs sync
-
-If code changed any surface that docs describe (API routes, schemas, CLI flags, env vars): diff
-docs against the generated spec or the code itself, fix drift, and flag—don't silently fix—any
-doc claim that was already wrong before this session. Never add mutable state to auto-loaded
-files (CLAUDE.md, AGENTS.md and kin); those carry only invariants and pointers to commands.
-
-A link checker is not a claim checker: `verify.docs-links` passes green on a roadmap with a
-wrong issue count, a stale CI banner and a hostname that now 502s (33ecb76f). Any doc that
-carries **values** — counts, hostnames, DNS records, credentials, issue numbers — is
-regenerated from a readback of the authoritative system, never proofread by eye (e3815767
-caught committed client-facing DNS values disagreeing with live infra that way).
-
-## 6b. Repo hygiene — run the script, do not re-derive it
-
-```bash
-~/.claude/commands/bin/repo-hygiene.sh --landed   # reports; exit 1 = something is stale or unlanded
-```
-
-`--landed` adds: uncommitted files in every worktree, commits that exist on no remote (including
-branches that have no upstream), and your open PRs with their check state. Those PRs are durable
-but not yet on the default branch. It ends with `SAFE TO END: yes|no — <reason>`. Step 9 quotes
-that line verbatim. Never write it by hand.
-
-Then run `wt-clean`. It removes, without asking, every worktree
-that is clean, idle 6h+, has no open PR, and has landed. The user asked for automatic cleanup
-on 2026-10-23, after 34 worktrees were left across 9 repos. It keeps dirty and unpushed
-worktrees and lists them, so commit or discard those yourself. Commit any dirty
-agent-instruction file. Deleting a remote branch, or a worktree that wt-clean kept,
-is still a blast-radius action: name it and confirm.
-
-Do not re-derive this by hand. Harvests of 2026-08-10 found branch/worktree cleanup
-re-enumerated from scratch in eight sessions across five repos, human-initiated in most
-of them, and one session's handoff prompt carried a hand-written nine-branch deletion
-loop as prose — the automation had been written repeatedly and never made a file.
-
-Two traps the script already encodes, so you don't rediscover them:
-- `git branch --merged` **lies after a squash merge**. Merge state comes from `gh pr list
-  --state merged`, never from git's merge base.
-- Never report "cleanup done" while an open PR owns a surviving branch (0b192049 did).
-
-## 7. Confidentiality gate
-
-Before committing any derived artifact: no client names, addresses, credentials, or confidential
-document content in anything committed or posted. Patterns, not payloads.
-
-## 8. Continuation prompt — print it, don't just file it
-
-The single most frequent request across 236 harvested sessions (58 of them, 77 turns — more
-than "status?", more than "merge") is some form of *"give me a handoff prompt"*. The PR
-comment in step 2 is the durable record, but the next session is started by PASTING A PROMPT,
-so end the wrap by printing one in a fenced block the human can copy whole:
+## 9. Continuation prompt, printed
 
 ```
 /start then: <one-sentence mission>.
-Re-derive before acting (never trust this block): `git -C <repo> fetch --prune && git status
---porcelain && gh pr view <n> --json state,mergeable && gh pr checks <n>`.
+Re-derive before acting: `git -C <repo> fetch --prune && git status --porcelain && gh pr view <n> --json state,mergeable`.
 Done: <3 lines max, each with its verify command>.
-Not done: <items, each "blocked: <failing command>" or "not attempted">.
-Decisions waiting on the human: <each one approved command away, with a recommendation —
-  for a merge, literally: `gh pr merge <n> --squash --delete-branch` — say go. Recommend: yes/no, why>.
-Siblings elsewhere: <repo/path:line from the sweep ledger, verified; or "no family calibrated this session">.
+Not done: <each "blocked: <failing command>" or "not attempted">.
+Decisions waiting: <each one approved command away, with a recommendation>.
+Siblings elsewhere: <repo/path:line from the sweep, or "no family calibrated">.
 Read first: PR #<n> checkpoint log; <one file>.
 ```
 
-Commands, not claims — the /mission preamble explains why a brief labelled "verified" is the
-one that gets you. If the human asks for the prompt before /wrap, this block IS the answer;
-do not make them ask twice (32 sessions contain a re-ask of an already-answered request).
+If the human asks for a handoff prompt before /wrap, this block is the answer.
 
-Ask pending decisions with the interactive question tool, all in one call (merge bypasses,
-deletions, product choices), each with a recommended option. Do not leave them as a prose list.
-"ask all interactively!!" was a correction in 3 studied sessions.
+## 10. Final status
 
-## 9. Final status line
-
-End with: branch, HEAD, PR URL + state, CI state, issues updated/created, board moves, anything
-left dirty or in flight — and the one thing most likely to bite the next session.
-
-The last line is the `SAFE TO END:` line, copied verbatim from a `repo-hygiene.sh --landed` run
-made in this closing turn. "do i end session" / "So do we end this session?" was asked after 3
-studied wraps. This line answers it before it is asked.
-
-Any "deployed / live / fixed in prod" claim in this line requires a fresh readback from the
-serving system IN THIS CLOSING TURN: curl the live URL and check for the NEW behavior —
-checking for absence of the old string passes on any error page (c3cabb5f: "Fixed and live"
-while the server held old pages in memory; cbfc486c: three prod deploys stalled silently while
-CLI exit and PR state said done, and the human had to ask "was this pr deployed??").
+Branch, HEAD, PR URL + state, release tag, issues touched, anything still dirty or in flight, and
+the one thing most likely to bite the next session. Percentages only with a real denominator
+(X of N). Any "deployed/live" claim needs this turn's readback. The last line is the `SAFE TO END:`
+line, copied verbatim from a `repo-hygiene.sh --landed` run made in this turn.
