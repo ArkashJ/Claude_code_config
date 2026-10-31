@@ -32,9 +32,16 @@ git -C "$D/repo" remote add origin https://example.invalid/x/y.git
 
 # gh is stubbed so the cases are deterministic; the real script must not care.
 stub_gh() {  # $1 = merged heads (newline-sep), $2 = open heads
+  # Each merged head is recorded at the commit it points to NOW: that is the commit its PR merged.
+  local pairs="" h oid
+  while read -r h; do
+    [ -z "$h" ] && continue
+    oid=$(git -C "$D/repo" rev-parse -q --verify "$h^{commit}" 2>/dev/null || echo 0000000000000000000000000000000000000000)
+    pairs+="$h $oid"$'\n'
+  done <<< "$1"
   cat > "$D/stub/gh" <<EOF
 #!/usr/bin/env bash
-if [[ "\$*" == *"--state merged"* ]]; then printf '%s\n' $(printf '%q' "$1"); exit 0; fi
+if [[ "\$*" == *"--state merged"* ]]; then printf '%s' $(printf '%q' "$pairs"); exit 0; fi
 if [[ "\$*" == *"--state open"*   ]]; then printf '%s\n' $(printf '%q' "$2"); exit 0; fi
 exit 0
 EOF
@@ -100,7 +107,7 @@ kill "$live_pid" 2>/dev/null
 wait "$live_pid" 2>/dev/null
 git -C "$D/repo" worktree remove --force "$D/live-wt" >/dev/null 2>&1
 
-# 6-8. --landed: /wrap's SAFE TO END line must be computed from the tree, and must say "no"
+# 6-8. --landed: the /mission wrap's SAFE TO END line must be computed from the tree, and must say "no"
 # for each way work can exist only on this machine (sessions 19df0d01, a3ec5016: "do i end
 # session" / "are the files on main or no??" asked after a wrap had already reported done).
 runl() { (cd "$D/repo" && PATH="$D/stub:$PATH" bash "$SCRIPT" --landed 2>&1); }
@@ -121,6 +128,17 @@ checkl "…and the verdict says no" "^SAFE TO END: no"
 git -C "$D/repo" checkout -q master
 stub_gh "local-only" ""   # its PR was squash-merged and GitHub deleted the remote head
 checkl "a squash-merged branch gets delete advice, not push advice" "^SAFE TO END: yes"
+
+# 9. 2026-10-30: work committed onto a branch AFTER its PR merged (24c65529a, never pushed,
+#    43 dirty files) was called "safe to remove" and "0 commits on no remote".
+git -C "$D/repo" worktree add -q "$D/post-merge-wt" -b post-merge >/dev/null 2>&1
+stub_gh "post-merge" ""                                   # PR merged at the current tip
+git -C "$D/post-merge-wt" commit -q --allow-empty -m "after the merge, never pushed"
+echo wip > "$D/post-merge-wt/wip.txt"
+checkl "a commit after the PR merged is reported as unpushed" "branch 'post-merge' has 1 commit"
+check "that worktree is never called safe to remove" "post-merge-wt.*safe to remove" absent
+check "that branch never gets delete advice" "git branch -D post-merge" absent
+git -C "$D/repo" worktree remove --force "$D/post-merge-wt" >/dev/null 2>&1
 
 if [ "$fails" -gt 0 ]; then
   echo "$fails check(s) failed — repo-hygiene.sh can recommend destroying live work"

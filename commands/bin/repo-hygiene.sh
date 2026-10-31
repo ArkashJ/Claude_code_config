@@ -3,14 +3,14 @@
 #
 #   repo-hygiene.sh [--brief] [--landed] [DIR]
 #
-# --landed (used by /wrap) adds: dirty files in any worktree, and local commits that exist on
+# --landed (used by the /mission wrap) adds: dirty files in any worktree, and local commits that exist on
 # no remote. It ends with ONE line, `SAFE TO END: yes` or `SAFE TO END: no — <reason>`, computed
 # here so the model cannot hand-write it. Studied sessions 9fc47df2, b47591fd, 19df0d01, a3ec5016:
 # the human asked "do i end session" / "are the files on main or no??" AFTER a wrap had reported
 # done, because the wrap's own summary was the only evidence and it had not looked.
 #
 # Deletes nothing, ever. Blast radius belongs to a human; this only removes the excuse
-# that nobody knew. Exit 1 = something is stale, so /start and /wrap can gate on it.
+# that nobody knew. Exit 1 = something is stale, so /start and the /mission wrap can gate on it.
 #
 # --brief prints ONE line and is SILENT when clean: it runs from the SessionStart hook,
 # where every line costs context in all 100+ sessions, most of which are clean.
@@ -65,13 +65,25 @@ if command -v lsof >/dev/null; then
   done < <(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}')
 fi
 
+# A merged PR proves only the commit it merged, not the branch name. 2026-10-30: a session
+# committed 24c65529a onto worktree-issue-26536-so-sandbox-containment AFTER its PR merged,
+# never pushed it, and left 43 dirty files; this script called the worktree "safe to remove"
+# and "0 commits on no remote", and a user approved removing it before a peer read it.
+merged_pairs=""
+tip_landed() {  # $1 = branch: its tip is the merged PR head, or already on a remote
+  local tip; tip=$(git rev-parse -q --verify "$1^{commit}") || return 1
+  printf '%s\n' "$merged_pairs" | grep -qxF "$1 $tip" && return 0
+  [ "$(git rev-list --count "$1" --not --remotes 2>/dev/null || echo 1)" -eq 0 ]
+}
+
 # 2/3/4. branch + worktree classification from PR state, never from git's merge base
 n_open=0
 n_kept=0
 # The first line of `git worktree list --porcelain` is always the main checkout.
 main_wt=$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2; exit}')
 if command -v gh >/dev/null && git remote get-url origin >/dev/null 2>&1; then
-  merged=$(timeout 10 gh pr list --state merged --limit 200 --json headRefName -q '.[].headRefName' 2>/dev/null | sort -u)
+  merged_pairs=$(timeout 10 gh pr list --state merged --limit 200 --json headRefName,headRefOid -q '.[] | .headRefName+" "+.headRefOid' 2>/dev/null | sort -u)
+  merged=$(printf '%s\n' "$merged_pairs" | awk 'NF{print $1}' | sort -u)
   open=$(timeout 10 gh pr list --state open --limit 200 --json headRefName -q '.[].headRefName' 2>/dev/null | sort -u)
   n_open=$(printf '%s' "$open" | grep -c . || true)
   cur=$(git branch --show-current)
@@ -98,7 +110,7 @@ if command -v gh >/dev/null && git remote get-url origin >/dev/null 2>&1; then
       n_kept=$((n_kept + 1))
       continue
     fi
-    if printf '%s\n' "$merged" | grep -qxF "$b"; then
+    if printf '%s\n' "$merged" | grep -qxF "$b" && tip_landed "$b"; then
       out+=("  branch '$b' — PR merged, branch still here: git branch -D $b")
       n_br=$((n_br + 1))
     fi
@@ -115,7 +127,8 @@ if command -v gh >/dev/null && git remote get-url origin >/dev/null 2>&1; then
     if [ "$wt" = "$main_wt" ]; then
       continue
     fi
-    if printf '%s\n' "$merged" | grep -qxF "$br"; then
+    if printf '%s\n' "$merged" | grep -qxF "$br" && tip_landed "$br" &&
+       [ -z "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
       out+=("  worktree '$wt' on merged branch '$br' — safe to remove")
       n_wtm=$((n_wtm + 1))
     fi
@@ -174,7 +187,7 @@ if [ "$LANDED" -eq 1 ]; then
     # A squash-merged PR's branch has commits on no remote once GitHub deletes the head, yet it
     # is landed; section 2 already says `git branch -D`. Advising a push here recreated junk
     # remote branches and pinned SAFE TO END at "no" (9783b154: "remotes already auto-deleted").
-    printf '%s\n' "${merged:-}" | grep -qxF "$b" && continue
+    tip_landed "$b" && continue
     c=$(git rev-list --count "$b" --not --remotes 2>/dev/null || echo 0)
     [ "$c" -gt 0 ] && { out+=("  branch '$b' has $c commit(s) on no remote: git push -u origin $b"); n_local=$((n_local + 1)); }
   done < <(git for-each-ref --format='%(refname:short)' refs/heads)

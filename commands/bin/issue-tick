@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# usage: issue-tick <owner/repo> <issue> <ERE matching one checklist line> [--evidence '<cmd>'] [--apply] | --self-test
+# Tick one `- [ ]` checklist line in a GitHub issue body. Refuses unless EXACTLY ONE unchecked line matches.
+# Dry run by default (shows before/after). --apply edits the body via gh and reads it back to confirm the
+# line is checked. --evidence appends ' — verify: `<cmd>`' to the ticked line.
+# The body is read-modify-written whole, so --apply re-reads the issue right before the edit and refuses if
+# updatedAt moved (someone edited since the first read; small window remains between that check and the edit),
+# then reads the whole body back and requires it to equal what was sent (only the one line changed).
+set -euo pipefail
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
+
+# stdin: body. Prints "<lineno>:<line>" for each unchecked checklist line matching the ERE.
+matches() { RE=$1 awk '/^[ \t]*[-*] \[ \]/ && $0 ~ ENVIRON["RE"] { print NR ":" $0 }'; }
+
+# stdin: body. $1 line number, $2 evidence or "". Keeps CRLF endings (GitHub bodies often have them).
+tick_line() {
+  awk -v n="$1" -v ev="$2" 'NR == n {
+      cr = ($0 ~ /\r$/) ? "\r" : ""; sub(/\r$/, "")
+      sub(/\[ \]/, "[x]")
+      if (ev != "") $0 = $0 " — verify: `" ev "`"
+      $0 = $0 cr
+    } { print }'
+}
+
+GH=${ISSUE_TICK_GH:-gh}
+fetch_json() { "$GH" issue view "$2" -R "$1" --json body,updatedAt; } # <repo> <issue>
+
+self_test() {
+  [[ $("$0" -h) == usage:* ]] || { echo "SELF-TEST FAIL: -h does not print usage" >&2; exit 1; }
+  local d body m got
+  d=$(mktemp -d /tmp/issue-tick-selftest.XXXXXX)
+  body=$(printf '# Plan\r\n- [x] Excel export done\r\n- [ ] Excel import round trip\r\n- [ ] PDF export\r\n  - [ ] nested PDF thing\r\ntext - [ ] not a checklist\r\n')
+  [ "$(printf '%s\n' "$body" | matches 'Excel' | wc -l | tr -d ' ')" = 1 ] || { echo "SELF-TEST FAIL: Excel should match exactly 1 unchecked line (the [x] one is excluded)" >&2; exit 1; }
+  [ "$(printf '%s\n' "$body" | matches 'PDF' | wc -l | tr -d ' ')" = 2 ] || { echo "SELF-TEST FAIL: PDF should match 2" >&2; exit 1; }
+  [ -z "$(printf '%s\n' "$body" | matches 'checklist')" ] || { echo "SELF-TEST FAIL: prose line matched" >&2; exit 1; }
+  m=$(printf '%s\n' "$body" | matches 'Excel') m=${m%%:*}
+  got=$(printf '%s\n' "$body" | tick_line "$m" 'make verify')
+  printf '%s\n' "$got" | sed -n "${m}p" | od -c | grep -q '\\r' || { echo "SELF-TEST FAIL: CRLF lost" >&2; exit 1; }
+  # shellcheck disable=SC2016 # backticks are literal evidence formatting
+  grep -qF -- '- [x] Excel import round trip — verify: `make verify`' <<<"$got" || { echo "SELF-TEST FAIL: tick+evidence: $got" >&2; exit 1; }
+  [ "$(printf '%s\n' "$got" | grep -c '\[ \]')" = 3 ] || { echo "SELF-TEST FAIL: other lines changed" >&2; exit 1; }
+  # --apply against a fake gh: happy path, concurrent edit, corrupted read-back
+  cat >"$d/gh" <<'GH'
+#!/bin/sh
+D=$FAKE_DIR
+if [ "$2" = view ]; then
+  n=$(cat "$D/views" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"$D/views"
+  ts=T1; [ -z "$FAKE_RACE" ] || [ "$n" -lt 2 ] || ts=T2
+  jq -n --rawfile b "$D/body" --arg t "$ts" '{body: $b, updatedAt: $t}'
+elif [ "$2" = edit ]; then
+  while [ $# -gt 0 ]; do [ "$1" != --body-file ] || f=$2; shift; done
+  cp "$f" "$D/body"; [ -z "$FAKE_CORRUPT" ] || printf 'sneaky\n' >>"$D/body"
+  echo edited >"$D/edited"
+fi
+GH
+  chmod +x "$d/gh"
+  export ISSUE_TICK_GH="$d/gh" FAKE_DIR="$d/fake"
+  reset() { rm -rf "$FAKE_DIR"; mkdir "$FAKE_DIR"; printf '%s\n' "$body" >"$FAKE_DIR/body"; unset FAKE_RACE FAKE_CORRUPT; }
+  reset
+  out=$("$0" o/r 1 'Excel' --evidence 'make verify' --apply) || { echo "SELF-TEST FAIL: apply failed: $out" >&2; exit 1; }
+  grep -q 'verified by read-back' <<<"$out" && grep -q '^- \[x\] Excel import round trip' "$FAKE_DIR/body" || { echo "SELF-TEST FAIL: apply did not tick/verify: $out" >&2; exit 1; }
+  reset; export FAKE_RACE=1
+  out=$("$0" o/r 1 'Excel' --apply 2>&1) && { echo "SELF-TEST FAIL: concurrent edit not refused" >&2; exit 1; }
+  grep -q 'changed since' <<<"$out" && [ ! -e "$FAKE_DIR/edited" ] || { echo "SELF-TEST FAIL: race refusal wrong or edit still sent: $out" >&2; exit 1; }
+  reset; export FAKE_CORRUPT=1
+  out=$("$0" o/r 1 'Excel' --apply 2>&1) && { echo "SELF-TEST FAIL: corrupted read-back not caught" >&2; exit 1; }
+  grep -q 'READ-BACK FAILED' <<<"$out" || { echo "SELF-TEST FAIL: read-back message: $out" >&2; exit 1; }
+  rm -rf -- "${d:?}"
+  echo "issue-tick self-test: ok"
+}
+
+case ${1:-} in
+  -h|--help|"") usage; exit 0 ;;
+  --self-test) self_test; exit 0 ;;
+esac
+REPO=${1:?owner/repo} ISSUE=${2:?issue number} RE=${3:?ERE} EVIDENCE="" APPLY=0
+shift 3
+while [ $# -gt 0 ]; do
+  case $1 in
+    --evidence) EVIDENCE=${2:?--evidence needs a command}; shift 2 ;;
+    --apply) APPLY=1; shift ;;
+    *) echo "unknown arg: $1 (try -h)" >&2; exit 2 ;;
+  esac
+done
+
+j=$(fetch_json "$REPO" "$ISSUE")
+body=$(jq -r .body <<<"$j") updated=$(jq -r .updatedAt <<<"$j")
+total=$(printf '%s\n' "$body" | grep -c -E '^[[:space:]]*[-*] \[[ xX]\]' || true)
+hits=$(printf '%s\n' "$body" | matches "$RE")
+n=$(printf '%s' "$hits" | grep -c . || true)
+echo "$REPO#$ISSUE: $total checklist lines, $n unchecked match /$RE/"
+if [ "$n" -ne 1 ]; then
+  [ "$n" -eq 0 ] || printf '%s\n' "$hits" | sed 's/^/  /' | tr -d '\r'
+  echo "REFUSED: need exactly 1 unchecked match, got $n" >&2
+  exit 1
+fi
+line=${hits%%:*}
+new=$(printf '%s\n' "$body" | tick_line "$line" "$EVIDENCE")
+echo "line $line before: $(printf '%s\n' "$body" | sed -n "${line}p" | tr -d '\r')"
+echo "line $line after : $(printf '%s\n' "$new" | sed -n "${line}p" | tr -d '\r')"
+if [ "$APPLY" -ne 1 ]; then echo "dry run: nothing edited. Re-run with --apply."; exit 0; fi
+
+now=$(fetch_json "$REPO" "$ISSUE" | jq -r .updatedAt)
+[ "$now" = "$updated" ] || { echo "REFUSED: $REPO#$ISSUE changed since it was read (updatedAt $updated -> $now); re-run to tick against the current body" >&2; exit 1; }
+tmp=$(mktemp /tmp/issue-tick.XXXXXX)
+printf '%s\n' "$new" >"$tmp"
+"$GH" issue edit "$ISSUE" -R "$REPO" --body-file "$tmp" >/dev/null
+rm -f -- "$tmp"
+back=$(fetch_json "$REPO" "$ISSUE" | jq -r .body)
+if [ "$back" = "$new" ]; then
+  echo "verified by read-back (whole body equals what was sent; only line $line changed): $(printf '%s\n' "$back" | sed -n "${line}p" | tr -d '\r')"
+else
+  echo "READ-BACK FAILED: the body now differs from what was sent (concurrent edit or GitHub normalization). Differences:" >&2
+  diff <(printf '%s\n' "$new") <(printf '%s\n' "$back") >&2 || true
+  exit 1
+fi

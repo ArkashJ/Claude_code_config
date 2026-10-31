@@ -1,71 +1,87 @@
 ---
-description: Long-running autonomous run — phases with per-phase wraps, batched blockers, self-preservation before limits, skeptical review before final wrap
+description: Long-running autonomous run — phases with per-phase wraps, batched blockers, self-preservation before limits, adversarial review before the final wrap
 ---
 
 This is an autonomous multi-hour run. Mission: $ARGUMENTS
 
-Run /start first (preflight, enumeration, working rules — including
-continuous commit/push/checkpoint-log and volunteered status lines).
+Run /start first (preflight, hazard check, enumeration with counts, working rules).
 
-Then, BEFORE executing: resolve every concrete token in the mission text above against this
-repo — commits (`git cat-file -e <sha>`), branches (`git ls-remote --heads origin <name>`),
-issues/PRs (`gh issue view <n>`, escalated out of the sandbox), test counts, file paths. A
-handed-in plan goes stale the same way CLAUDE.md/AGENTS.md does, and can even belong to a
-different repository — 06f4a671's did (cited commit `602f40b`: "Not a valid object name";
-cited 1275 tests: repo runs 120), caught by exactly this check, saving the whole run. Report
-what failed to resolve and adapt before phase 1.
-
-Then run the mission in phases, fully autonomously. When a phase needs it, invoke the commands
-rather than improvising them: /map for unfamiliar ground, /featuredev for a feature|QA loop,
-/investigate for an evidence-first review of your own PRs — before calling a phase done.
+Then, BEFORE executing: resolve every concrete token in the mission text against this repo —
+commits (`git cat-file -e <sha>`), branches (`git ls-remote --heads origin <name>`), issues/PRs
+(`gh issue view <n>`), test counts, file paths. A handed-in plan goes stale and can even belong to
+another repo. Report what failed to resolve and adapt before phase 1. If the mission rests on a
+corpus (client docs, CSVs, specs), the /start depth rule applies: "read N of N files" before the
+phase plan is written.
 
 ## Autonomy rules — these are what make hours-long unattended work safe
 
-1. **Phase boundaries are wrap points.** Break the mission into phases up front and post the
-   phase plan to the draft PR. At the END of each phase run the /wrap distillation for that
-   phase (changelog delta, issues/board updates, PR comment with done/not-done/not-read). A run
-   that dies mid-phase loses at most one phase, never the day.
-   Each phase wrap also runs `python3 ~/.claude/skills/harvest/signals.py` and posts
-   `asks proven X of N` (wrap step 0b), plus `hunt.py <repo> --since <phase start>` when the
-   phase changed React/TanStack code. Long runs studied ended with the human asking "did you act
-   on all the changes???" and "are the workflows running though or not???", which a per-phase
-   ledger answers before it is asked.
-2. **Never stop to ask mid-run — but never run silent either.** Blockers and decisions-that-are-
-   mine get recorded (issue or checkpoint log) with your best recommendation, and you continue
-   with everything not blocked by them. Only when nothing actionable remains do you stop and
-   present the batched questions. Post an unprompted status line to the checkpoint log at every
-   phase boundary AND at least every ~15 minutes of work — if the human has to probe, the run
-   has failed at this rule (592c8a27: three probes in one session; "You had to ask — that's on me").
-3. **Self-preserve before limits kill you.** You cannot see spend limits coming, so behave as if
-   the run can be killed at any moment (that is what continuous checkpointing is for). When you
-   notice context pressure, checkpoint immediately, write a continuation prompt INTO the PR
-   (state, next steps, open questions), and either delegate remaining phases to fresh subagents
-   or wrap. Never start a delicate irreversible operation you might not finish.
-4. **Every subagent prompt carries the shell rules:** no `cd X &&` (absolute paths, `git -C`,
-   `bun --cwd`), never `sleep`, browsers through `pw`, gates through
-   `once`. 1,288 of the 1,331 hook-blocked `cd` calls in 14 days came from subagents whose
-   prompts lacked this line.
-5. **Delegate hard, tiered.** This run should be mostly orchestration: haiku lanes for sweeps
-   and summaries, sonnet lanes for well-specified implementation, strongest model for judgment
-   and adversarial verification. Dispatch isolation per /start rule 4. Prefer many small pushed
-   commits from lanes over large unpushed work — unpushed lane work dies with the lane. A lane's
-   work exists only once VERIFIED LANDED: when a lane returns (or dies), check its worktree is
-   clean and its commits are reachable from the branch before believing its report (2d8120f4: a
-   killed agent's 9 dirty files sat in a worktree while the session believed the work landed;
-   3 of 8 lanes died silently in the same run).
-6. **Blast radius still holds.** Merges, deploys, bulk deletes, prod data mutations are NEVER
-   autonomous — queue them as the batched questions at the end, with everything staged so each
-   is one approved command away.
-   Hosted CI is never something to wait on: local gates are the evidence, and a merge blocked
-   only on hosted CI goes through `--admin` once the human approves the merge (/wrap step 1).
-7. **Adversarial pass before final wrap.** Before ending, run a skeptical
-   review of this run's own output (/investigate, or fresh agents prompted to refute). Fix what it finds, then
-   do the final /wrap: full distillation, board/issues/changelog, handoff, final status line,
-   and the batched decision list — each with a recommendation.
+1. **Phase boundaries are wrap points.** Post the phase plan to the master issue or draft PR up
+   front. At the end of each phase run the phase wrap below. A run that dies mid-phase loses at most
+   one phase.
+2. **Never stop to ask mid-run, never run silent.** Record blockers and decisions-that-are-mine
+   (issue or checkpoint log) with a recommendation, and continue with everything not blocked. Stop
+   only when nothing actionable remains, then ask all batched questions at once with the
+   interactive question tool. Post a one-line status with counts at every phase boundary and at
+   least every ~15 minutes; never claim done while any lane is unfinished.
+3. **Self-preserve before limits kill you.** Behave as if the run can be killed at any moment. On
+   context pressure: checkpoint, write a continuation prompt into the PR, then delegate the remaining
+   phases or wrap. Never start an irreversible operation you might not finish.
+4. **Every subagent prompt carries the shell rules** (no `cd X &&`, no `sleep`, `pw`, `once`), one
+   output path, and the exact proof command. Foreground subagents only.
+5. **Delegate hard, tiered** (routing per CLAUDE.md). A lane's work exists only once VERIFIED
+   LANDED: when it returns or dies, check its worktree is clean and its commits are reachable from
+   the branch, and spot-check its load-bearing claims at source before relaying them.
+6. **Blast radius still holds.** Merges, deploys, bulk deletes and prod data mutations are never
+   autonomous: stage each one approved command away and ask at the end. Hosted CI is never a gate:
+   local gates are the evidence, and a merge blocked only on hosted CI goes through `--admin` once
+   the human approves it.
+7. **Adversarial pass before the final wrap.** Run a cold adversarial reviewer (opus, never shown the
+   author's reasoning, prompted to refute) over the run's output. Fix what it finds, then do the
+   final wrap.
+
+## Wrap — every phase, and once more at the end
+
+Derive every artifact from git/gh/the enumeration; never hand-write what a command can compute.
+Each phase:
+- `git status --porcelain` empty: logical commits, pushed, PR current, scratch removed.
+- Checkpoint-log line with a `verify:` certificate; route every `SURPRISE:`/`FALSIFIED:` line to a
+  fix, an issue or an explicit discard.
+- `python3 ~/.claude/skills/harvest/signals.py` and report `asks proven X of N`; if the phase changed
+  React/TanStack code, `python3 ~/.claude/skills/qa/hunt.py <repo> --since <phase start>`.
+- Master issue / PR comment: done, not done (`blocked: <cmd>` or `not attempted`), not read.
+
+Final wrap adds:
+- Run the repo's local gates once (`once <cmd>`) and paste the output into the PR.
+- If the repo keeps a `CHANGELOG.md`, add the entry derived from commits/merged PRs since the last
+  one: conclusions only, no state.
+- Issues updated or closed with a link to the proving commit; one new issue per discovered root
+  cause; superseded issues closed with a pointer; board items moved.
+- Docs the change touched: fix drift against code; regenerate any doc that carries values (counts,
+  hosts, DNS, issue numbers) from a readback. Nothing mutable in CLAUDE.md/AGENTS.md.
+- No client names, credentials or confidential content in anything committed or posted.
+- `~/.claude/commands/bin/repo-hygiene.sh --landed`, then `wt-clean`. Deleting a remote branch or a
+  worktree wt-clean kept still needs confirmation.
+- Ask every pending decision in one interactive question call, each with a recommendation.
+- Print the continuation prompt in a fenced block:
+
+```
+/start then: <one-sentence mission>.
+Re-derive before acting: `git -C <repo> fetch --prune && git status --porcelain && gh pr view <n> --json state,mergeable`.
+Done: <3 lines max, each with its verify command>.
+Not done: <each "blocked: <failing command>" or "not attempted">.
+Decisions waiting: <each one approved command away, with a recommendation>.
+Read first: master issue #<n>; PR #<n> checkpoint log.
+```
+
+- Prove each ask with a command: merge `gh pr view <n> --json state,mergedAt`; code `git branch -r
+  --contains <sha>`; issue `gh issue view <n> --json state`; deploy a readback of the NEW behavior
+  (absence of the old string passes on any error page). An unproven ask goes in "Not done".
+- Last lines: branch, HEAD, PR URL + state, issues touched; any "deployed/live" claim needs a fresh
+  readback of the NEW behavior from the serving system in this turn; then the `SAFE TO END:` line
+  copied verbatim from the `--landed` run.
 
 ## Status format — banned: completion percentages
 
-Never emit a completion percentage. A number no command produces cannot be checked, so it
-drifts (observed going 98→90→96 and "100%" before the suite ever ran). Status is: the pasted
-output of the done-criteria checks (test/lint/build results, PR state, dirty files) plus
-what's next. If a denominator genuinely exists (X of N enumerated items), say X of N.
+Never emit a percentage no command produces. Status is the pasted output of the done-criteria
+checks (tests, lint, build, PR state, dirty files) plus what's next. With a real denominator, say
+X of N.

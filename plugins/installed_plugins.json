@@ -4,11 +4,11 @@
     "ponytail@ponytail": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/ponytail/ponytail/4.10.0",
-        "version": "4.10.0",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/ponytail/ponytail/5.3.2",
+        "version": "5.3.2",
         "installedAt": "2026-09-16T15:07:31.232Z",
-        "lastUpdated": "2026-09-16T15:07:31.232Z",
-        "gitCommitSha": "e3ba2aa6f1e6f0bc4d69eb09c9f0d0a93af56156"
+        "lastUpdated": "2026-10-23T16:48:19.459Z",
+        "gitCommitSha": "09c434ab73ca43761c5d8b0c5d341926c2fba710"
       }
     ],
     "aws-core@claude-plugins-official": [
@@ -24,11 +24,11 @@
     "pr-review-toolkit@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/fa59bc903774",
-        "version": "fa59bc903774",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/1.0.1",
+        "version": "1.0.1",
         "installedAt": "2026-09-18T19:59:18.701Z",
-        "lastUpdated": "2026-09-26T14:49:33.535Z",
-        "gitCommitSha": "fa59bc9037741ecfa131aa27938272605710d7b2"
+        "lastUpdated": "2026-10-27T22:15:09.517Z",
+        "gitCommitSha": "f8c5e7a1dcb71b10cb74586224b5401f3de5db28"
       }
     ],
     "typesafe@typesafe-ai": [
@@ -59,6 +59,15 @@
         "installedAt": "2026-09-19T18:54:28.925Z",
         "lastUpdated": "2026-09-19T18:54:28.925Z",
         "gitCommitSha": "c447c3207a425bc4e2a0d068435f64b0477ae981"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/Users/arkashjain/Benmore/randy_nuclear",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/typescript-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-10-20T14:42:48.822Z",
+        "lastUpdated": "2026-10-20T14:42:48.822Z",
+        "gitCommitSha": "c447c3207a425bc4e2a0d068435f64b0477ae981"
       }
     ],
     "vercel@claude-plugins-official": [
@@ -69,6 +78,26 @@
         "installedAt": "2026-09-22T23:38:03.266Z",
         "lastUpdated": "2026-09-22T23:38:03.266Z",
         "gitCommitSha": "882e66c2698689324c341b7bb8fd8beb92c27bf6"
+      }
+    ],
+    "html-plan@claude-community": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-community/html-plan/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-10-06T15:05:32.579Z",
+        "lastUpdated": "2026-10-06T15:05:32.579Z",
+        "gitCommitSha": "f60f0454df3045f724c43c6346ec80bdcc3472b2"
+      }
+    ],
+    "jdtls-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/jdtls-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-10-28T02:21:03.510Z",
+        "lastUpdated": "2026-10-28T02:21:03.510Z",
+        "gitCommitSha": "f8c5e7a1dcb71b10cb74586224b5401f3de5db28"
       }
     ]
   }

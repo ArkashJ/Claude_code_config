@@ -1,180 +1,114 @@
 ---
-description: Open a session — preflight (git/gh/PATH), enumerate sources with counts, set the working rules (commit/push/checkpoint continuously, verify at source, volunteered status)
+description: Open a session — preflight + hazard check, enumerate sources with counts and read them in full, working rules (commit/push/checkpoint, verify at source, volunteered status)
 ---
 
-Start this session properly. These rules encode corrections that recurred across 21 harvested
-sessions — they are structural, not suggestions. If a step is impossible here (no git repo, no
-`gh`, no remote), say so explicitly in one line and move on; never silently skip.
+Start this session properly. Each rule below is a correction the user had to make more than once.
+If a step is impossible here (no git repo, no `gh`, no remote), say so in one line and move on;
+never skip silently.
 
 ## 1. Preflight — do this NOW, before anything else
 
-`git fetch --all --prune` FIRST — `git log` on an unfetched clone has produced a wrong state
-assessment twice (81175d0e: caught by fetching before concluding; cbfc486c: not caught, local
-main 10 commits behind, every early conclusion wrong).
-Then run and show: `git status --porcelain`, `git log --oneline -5`, `gh pr list --state open`,
-`gh issue list --limit 20`, `gh auth status`. Check the token's SCOPES against what the task
-will need (merges need `workflow` scope for PRs touching CI files) — a scope gap discovered at
-merge time has already cost a session its endgame. A rejected push/merge is a credential fact
-before it is a consent fact. Also check the project board if one exists (`gh project list`). Never infer remote/branch/PR state from local git — query it. Never fork
-from a branch without checking whether an open PR already owns it.
+- `git fetch --all --prune` FIRST (an unfetched clone has produced wrong state reports). Then show
+  `git status --porcelain`, `git log --oneline -5`, `gh pr list --state open`, `gh issue list --limit 20`
+  (with the untruncated count), `gh auth status`. Check token scopes against the task (merging a PR
+  that touches CI needs `workflow`). Query remote/branch/PR state; never infer it from local git.
+  Never fork from a branch an open PR already owns.
+- **Hazard check before anything is pushed:** `git log origin/<trunk>..HEAD --stat`. List what the
+  unpushed commits ADD: client data or exports, secrets, binaries, `*.jsonl`, scratch
+  HANDOFF/SESSION/PLAN markdown, tool caches. Untrack or move them first.
+- Dead predecessor: an open draft PR with a "Checkpoint log" comment and no final handoff means a
+  session died. Report where it stopped; ask resume or fresh.
+- Run `~/.claude/commands/bin/repo-hygiene.sh` (exit 1 = stale) and act on it. It deletes nothing;
+  pruning worktrees and deleting branches still need confirmation (rule 7). `git branch --merged`
+  lies after a squash merge: merge state comes from `gh pr list --state merged`.
 
-Check for a dead predecessor: any open draft PR with a "Checkpoint log" comment but no final
-handoff means a session died before /wrap. Read its checkpoint log, report what it was doing and
-where it stopped, and ask whether to resume it or start fresh.
+## 2. Enumerate, then read in depth before you plan
 
-Then run the hygiene report and act on what it prints:
+The FIRST action on any task (after a single urgent step, if there is one) is a numbered source
+list WITH COUNTS: open PRs and review comments, issues, docs, client folders, MCP sources (Slack,
+Drive, Notion), sibling repos, deployed state. Counts come from the untruncated set (`wc -l`,
+`--json | jq length`) before any `head`: "N total, showing M". The list is the completeness
+contract: any "done / covered" claim cites it and names what was not read. If you don't know
+where the client's truth lives, ask once.
 
-```bash
-~/.claude/commands/bin/repo-hygiene.sh          # exit 1 = something is stale
-```
-
-Inherited mess is a session-open problem, not a session-close one: AGENTS.md files inherited
-uncommitted from a prior session cost a triage turn (39771011), a forgotten worktree owning
-`main` blocked a checkout mid-run (ca8cacbc), and a polluted main checkout forced an entire
-worktree/branch/PR cycle for a one-file fix (e7665ec7). The script deletes nothing —
-**pruning worktrees and deleting branches are blast-radius actions needing a fresh per-action
-confirmation** (rule 7), and it never proposes deleting a branch an open PR owns.
-
-Do not re-derive this by hand. Branch/worktree cleanup was re-enumerated from scratch in eight
-sessions across five repos, and one handoff prompt carried a hand-written nine-branch deletion
-loop as prose — the automation had been written repeatedly and never made a file. Two traps it
-already encodes: `git branch --merged` **lies after a squash merge** (merge state comes from
-`gh pr list --state merged`), and "cleanup done" is false while an open PR owns a survivor.
-
-## 2. Enumerate, then DIVE on the intersection
-
-The FIRST action on any task — even one that opens with an urgent imperative; do the single
-urgent step, then enumerate before anything else — is to post the source list as a numbered
-enumeration WITH COUNTS (N open PRs and their review comments, N issues, N docs files,
-changelog entries since last touchpoint, deployed/runtime state if relevant). This applies to
-the next task message after /start, not just this turn. The list is the completeness contract:
-any "done / verified / covered everything" claim must cite it and NAME what was not read.
-"Thorough" means the enumeration is exhausted, not an effort level.
-
-Counts come from the UNTRUNCATED set: run the counting command (`wc -l`, `--json | jq length`)
-BEFORE any `head`/`--limit`/`tail`, and state "N total, showing M". A truncated listing is a
-sample, not an enumeration — concluding from one is how "3 new sessions" got reported when
-there were 19 (extractor, 2026-08-06). If a tool has its own enumerator (e.g.
-`harvest.py --list`), prefer it over ad-hoc `find | head`.
-
-Truth does not only live in this repo. The enumeration must also cover, when they exist:
-connected MCP sources (Slack, Drive, Notion — search them, don't assume), sibling project
-directories, client-sent document folders (drive dumps, specs, SOW/roadmap/contract docs), and
-platform CLIs. If the task involves client requirements and you don't know where their documents
-live, ask ONCE: "where else does truth live for this?" — then enumerate what I name.
-
-Then go DEEP on everything that intersects the task — and only that. Dispatch cheap-model
-subagents (so the reading costs their context, not yours) to fetch and distill:
-- PRs (open AND recently merged) touching the same files/feature: full bodies, review threads,
-  inline comments — `gh pr list --json number,files`, `gh pr view <n> --comments`. Review
-  threads carry the "why" that prevents re-litigating settled decisions.
-- Issues whose bodies mention the task's feature/files: `gh issue view <n> --comments`.
-- The predecessor session's Checkpoint log and handoff comments on any related PR.
-- Changelog/commits touching the same paths: `git log --oneline -20 -- <paths>`.
-Each subagent returns a distilled brief (decisions made, open questions, gotchas — with PR/issue
-numbers), not raw dumps. Depth is proportional to intersection with the task; the rest of the
-repo's history stays at count-level. If the ground is genuinely unfamiliar, run /map instead of
-crawling inline.
-
-Tripwire: more than ~10 exploration commands inline in the main thread means you are burning
-the orchestrator's context on reading — stop and dispatch subagents. Main-thread context is for
-deciding and editing, not for searching.
+- **Depth before plan.** Before writing any plan or checklist from a corpus (client docs, CSVs,
+  specs, issues), enumerate it as files × lines/bytes and read EVERY decision-relevant file in full.
+  Never sample a rules CSV or an answer key. Every plan states "read N of N files"; below 100%, say
+  so first and finish reading before writing.
+- **Find the oracle.** Ask what already exists upstream (the client's own engine, ledger, report,
+  answer key) and make it the acceptance test. Port it; don't reinvent it.
+- Fan out parallel readers by folder (routing per CLAUDE.md). Each returns a distilled brief
+  (decisions, open questions, gotchas, with PR/issue numbers and coverage), not raw dumps. Deep
+  on what intersects the task, counts only for the rest. More than ~10 exploration commands in the
+  main thread means stop and dispatch readers.
 
 ## 2b. Declare the skills this task will use — before the human names them
 
-Harvest 2026-09-02: in 37 of 236 sessions the human had to name the tool by hand — "use
-haiku teams", "use fable", "use the qa cli", "use superpowers / impeccable / design director".
-The skills were installed the whole time. So, as part of the enumeration, list the installed
-skills and commands that intersect the task and say which you will invoke and when:
-
-- frontend or "is it working" → the `qa` skill (MEASURE = the `qa` CLI, marathon mode for hours-long QA; HUNT = Jev screen over every hook; PLAN = QA plan from a diff)
-- UI look, states, copy → `impeccable`, `ui-stress`, `design-director`
-- unfamiliar ground → `/map`; feature loops → `/featuredev`; PR review → `/investigate`
-- anything over ~an hour or "overnight" → `/mission` (not a plan you hand back)
-- sweeps and summaries → haiku lanes; well-specified lanes → sonnet; judgment → strongest model
-
-If a listed skill does not fit, say why in one line. A skill the human has to request is a
-skill you failed to enumerate.
+List the installed skills that fit and say when you will use them: frontend or "is it working" →
+`qa` (STORIES, HUNT, REVIEW, MEASURE) and `playwright-cli` via `pw`; UI look/states/copy →
+`impeccable`, `ui-stress`, `design-director`; session mistakes → `harvest`; anything over ~an hour
+or "overnight" → `/mission`, not a plan handed back. If a listed skill does not fit, say why.
 
 ## 3. Isolate, commit, push, checkpoint — continuously, without being asked
 
-Work in a worktree. Commit after every green verify; push at each checkpoint (batched, not per
-commit: every push spends hosted-CI minutes, and hosted CI is not a gate; see /wrap step 1); open a
-draft PR at the first push. Non-empty `git status` at a stopping point is a defect. Scratch artifacts go to a
-temp dir, never the repo tree.
+Work in a worktree. Commit after every green verify; push in batches (each push spends hosted CI,
+which is not a gate); open a draft PR at the first push. A non-empty `git status` at a stopping
+point is a defect. Scratch goes to a temp dir, never the repo.
 
-After each completed unit of work (green verify, finished sub-task, before any large fan-out),
-CHECKPOINT unprompted: commit + push, then append one line to a single rolling "Checkpoint log"
-comment on the draft PR: `<time> — <what landed> — <verify: one command/URL that proves it in
-under 2 min> — <what's next>`. The verify field is mandatory: work whose correctness can only be
-checked by re-doing it is not done — attach the cheap certificate (test that flips, screenshot,
-command output) or say explicitly that this delta is judgment-only and needs human review. Capture surprises the moment
-they happen, in the same comment: `SURPRISE: <doc/plan said X, reality is Y>` or
-`FALSIFIED: <what I asserted vs what the test showed>`. Raw one-liners only — routing them into
-changelog/issues/docs happens at /wrap, not now. This log is the recovery record: if this
-session dies, the next session reconstructs from it.
+After each unit of work, CHECKPOINT unprompted: commit + push, then append one line to a single
+rolling "Checkpoint log" PR comment: `<time> — <what landed> — verify: <one command/URL that proves
+it in under 2 min> — <next>`. No verify certificate means say "judgment-only, needs human review".
+Log `SURPRISE: <expected X, got Y>` and `FALSIFIED: <claim vs test>` the moment they happen. When
+the human says "checkpoint" or is leaving: do this now, say which in-flight agents' work is pushed
+and which would die with them, and start nothing new.
+
+**Deliverables live in GitHub, not local files.** One master issue (checklist body + log section;
+prompts and context as comments); close superseded issues with a pointer; open PRs. When the user
+asks to post, merge or close, do it; don't stop at a plan.
 
 ## 4. Delegate — agents and workflows, tiered by cost
 
-Fan out subagents/workflows for parallelizable work: **haiku** for mechanical sweeps
-(enumeration, file-read summaries, discovery, status collection); **sonnet** for well-specified
-implementation lanes with a verify step; **strongest model** only for architecture, judgment,
-synthesis, and adversarial verification (verifiers try to REFUTE, not confirm). Isolation is
-allocated at dispatch: one worktree per writing agent; declared file sets rejected on overlap
-with sibling lanes AND with any open PR's files; per-lane DB/fixture names for concurrent tests.
-Every dispatch prompt includes the commit/push cadence from rule 3.
+Model routing is in CLAUDE.md. Foreground subagents only. Every brief carries the shell rules (no
+`cd X &&`, no `sleep`, `pw` for browsers, `once` for gates), one output path per agent, and the exact
+proof command. One worktree per writing agent; reject file-set overlap with sibling lanes and open
+PRs; per-lane DB/fixture names.
 
 ## 5. Verify at the authoritative source
 
-Assertions about remote, deployed, DB, or runtime state must show proving command output from
-the source itself — not the repo, not a green pipeline, not an HTTP 200, not an exit status.
-After any write, read it back. A report on a runnable app states whether the app was run.
+- Claims about remote, deployed, DB or runtime state show proving output from that source, not the
+  repo, a green pipeline, an HTTP 200 or an exit code. After any write, read it back.
+  A report on a runnable app states whether the app was run.
+- **Prod evidence over code reading:** measure behavior from logs/CI/build history (counts per day,
+  p50/p95, pass rates) before claiming it.
+- **Verify agents:** spot-check every load-bearing agent claim (recompute the arithmetic, grep the
+  symbol, open the row) before relaying it. Run a cold adversarial reviewer (opus, never shown the
+  author's reasoning) on every artifact before shipping; expect 20–30 findings on a big rewrite.
 
 ## 6. Status — volunteered, never polled
 
-At every stopping point print one unprompted line: branch, HEAD, PR state, agents in flight,
-dirty files, what's blocking. Background work reports progress unasked. If I have to ask
-"status?", this rule was violated.
+At every stopping point print one line: branch, HEAD, PR state, agents in flight (X of N done),
+dirty files, blocker. While the user waits on background agents: one-line status with counts, not
+prose. Never claim "done" while any lane is unfinished.
 
 ## 7. Blast radius
 
-Merges, deploys, bulk deletes, force pushes, and production data mutations each need a fresh
-per-action confirmation naming the action — no prior broad grant covers them. Conversely, cheap
-reversible work inside an explicit grant gets done, not deferred. Rank by blast radius, not
-effort.
-
-The check keys to the ACTION CLASS, never to an authorisation phrase — caution that triggers
-on the word "approved" is absent exactly when nobody is watching (cbfc486c: SES production
-access requested and a support case opened on ANOTHER COMPANY'S AWS account, mid-flow, no
-approval moment in sight). So, mechanically:
-- Before the first mutating call to any external system this session: assert the target
-  identity in the same turn — `aws sts get-caller-identity`, `benmore whoami && benmore apps`
-  (whoami alone reads a cached credential and lies: e7faa32e), `gh repo view --json nameWithOwner`.
-- External-facing artifacts (DNS records, credential docs, client emails, deploy claims) are
-  written only from a post-write READBACK of the authoritative system, never from inferred
-  state (68cc0040: wrong CNAME sent to a client; 06f4a671: prod approval obtained for what
-  `benmore deploy .` actually sent to dev).
+Merges, deploys, bulk deletes, force pushes and production data mutations each need fresh
+confirmation naming the action. Cheap reversible work inside an explicit grant gets done, not
+deferred. Key the check to the action class, not to a phrase like "approved". Before the first
+mutating call to any external system, assert the identity in the same turn (`aws sts
+get-caller-identity`, `gh repo view --json nameWithOwner`, `benmore whoami && benmore apps`).
+External-facing values (DNS, credentials, client emails, deploy claims) come from a readback of
+the authoritative system, never from inferred state.
 
 ## 7b. When a tool call is denied — say so, once, in one line
 
-47 of 236 sessions contain "approved", "all allowed", or "ask again". About half of those are
-the human re-granting something already granted because a permission prompt or the auto-mode
-classifier blocked a call and the model moved on WITHOUT saying what was blocked. The human
-then has to notice the gap, guess the cause, and say "ask again".
-
-Protocol: when a call is denied, (1) finish everything that does not depend on it, (2) end the
-turn with one line per denied action — the exact command and what it was for — batched, not
-one at a time, and (3) never route around the denial (a peer session doing it for you is
-permission laundering). If the same class was granted earlier this session, say so in the
-line; do not silently drop the work.
+Finish everything that does not depend on it; end the turn with one line per denied action (the
+exact command and its purpose), batched. Never route around a denial.
 
 ## 8. Ending a turn
 
-A Stop hook (`~/.claude/commands/hooks/block-open-ended-stop.sh`) refuses to end a turn whose
-reply defers work with no accepted reason, or claims done on a dirty tree. Accepted reasons:
-`blocked: <failing command>`, `not attempted`, `human decision` (rule 7 actions, each one
-approved command away with a recommendation). "Next steps" you are allowed to take are not
-next steps — they are the rest of the task. Measured 2026-09-02: "keep going" 40 sessions,
-"do all next steps" 39, "no deferrals" 38, "do a /wrap" 42 — the same stop, four phrasings.
+A turn may defer work only with a reason: `blocked: <failing command>`, `not attempted`, or `human
+decision` (each one approved command away, with a recommendation). Next steps you are allowed to
+take are the rest of the task, not next steps.
 
 Now show me the preflight output, then ask for the task if I haven't given one.

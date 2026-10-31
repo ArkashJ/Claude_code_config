@@ -1,93 +1,103 @@
 ## Enumeration discipline — count before you truncate
 
-Never draw a conclusion from a truncated list. `| head`, `--limit`, `[:N]` output is a
-SAMPLE: print the untruncated count first (`wc -l`, `--json | jq length`) and state
-"N total, showing M" before reasoning about the set. Any completeness claim ("3 new
-sessions", "all PRs reviewed") must cite the full count, not the sample.
-(Origin: extractor 2026-08-06 — "3 new sessions" concluded from `find | head -12`; there were 19.)
+Never draw a conclusion from a truncated list. `| head`, `--limit`, `[:N]` output is a SAMPLE:
+print the untruncated count first (`wc -l`, `--json | jq length`) and state "N total, showing M"
+before reasoning about the set. Any completeness claim ("all PRs reviewed") cites the full count.
+A `WHERE outcome = X` drops the complement as silently as `| head`: count both sides.
 
-## Never `sleep` to wait — the single most repeated waste in the corpus
+## Depth before plan — read the whole corpus first
 
-`sleep N && check`, `sleep`-then-poll, and `sleep` inside a compound command are blocked by the
-harness. **Reach for `Monitor` with an until-loop, or `run_in_background`, on the FIRST attempt.**
+- Before any plan or checklist built from a corpus (client docs, CSVs, specs, issues): enumerate it
+  as files × lines/bytes, then read EVERY decision-relevant file in full. Fan out parallel readers
+  by folder (routing below). Never sample a rules CSV or an answer key.
+- Every plan states coverage: "read N of N files". Below 100%, say so first and finish reading
+  before writing. A plan written from a sample gets rewritten after the user demands depth.
+- **Find the oracle.** Ask what already exists upstream (the client's own engine, ledger, report,
+  answer key) and make it the acceptance test. Port it; don't reinvent it.
 
-This is the most frequently repeated correction across every session ever harvested: **21 of 86
-sessions**, extracted independently under five different names. The former prefix-only block did
-not always fire: 151 sleep-bearing commands produced only 15 blocks. The current PreToolUse hook
-blocks any `sleep\s+\d` token anywhere in the command, including compound, `nohup`, and loop forms.
-Treat that as enforced only while the hook's adjacent self-test remains green
-(`~/.claude/hooks/guard-bash.sh`, self-test `~/.claude/hooks/guard-bash.test.sh`; registered
-in `~/.claude/settings.json` on 2026-09-20 — before that date it was documented but not configured).
+## Verify before you relay
 
-Related, same family: an inner `timeout 900` is decorative when it exceeds the Bash tool's own
-cap — the call dies at the tool's limit, not yours (592c8a27: two dead 2-minute waits and a
-re-run of the full suite). Pass `timeout:` on the Bash call itself, or background it.
+- **Agent output is a claim, not a fact.** Spot-check every load-bearing claim at source before
+  relaying it: recompute the arithmetic, grep the symbol, open the row. A lane's work exists only
+  when its commits are reachable from the branch and its worktree is clean.
+- **Adversarial review on every artifact before shipping:** a cold reviewer (opus) that never sees
+  the author's reasoning, prompted to refute. Expect 20–30 findings on a big rewrite.
+- **Prod evidence over code reading.** Measure behavior from logs, CI or build history (counts per
+  day, p50/p95, pass rates) before claiming it. Remote/deployed/DB state needs output from that
+  source; after any write, read it back.
+
+## Model routing — one table, used everywhere
+
+- **haiku**: enumeration, counts, file moves, ticking checklists, status collection.
+- **sonnet**: builders, verifiers, parsers, well-specified implementation lanes.
+- **opus**: money, locks, migrations, legal/finance reading, architecture, the adversary.
+
+Subagents run in the foreground. Each brief carries the shell rules below, ONE output path, and the
+exact proof command. One worktree per writing agent; no file-set overlap between lanes.
+
+## Never `sleep` to wait
+
+`sleep N`, sleep-then-poll and `sleep` inside compound commands are blocked by
+`~/.claude/hooks/guard-bash.sh` (self-test `guard-bash.test.sh`; enforced only while it passes). Use `Monitor` with an until-loop or
+`run_in_background` on the FIRST attempt. An inner `timeout 900` longer than the Bash tool's cap is
+decorative: pass `timeout:` on the call itself, or background it.
 
 ## One command, one absolute path — never `cd &&` chains
 
-A compound `cd X && cmd` leaks the wrong cwd into the next command, and the harness resets cwd
-between calls. Use absolute paths, or `git -C <path>`, per command.
+The harness resets cwd between calls and the guard rejects `cd X && cmd` and `; cd X`. Use absolute
+paths, `git -C`, `bun --cwd`. `rm` targets are literal paths or `"${VAR:?}"`. **A loop that reports
+success without a count is not verified:** print the count and sanity-check it (`2>/dev/null` has
+hidden 121 empty files in a 122-file batch).
 
-The global PreToolUse hook rejects `cd X && cmd` at command start and `; cd X` later in a command;
-use `git -C`, `bun --cwd`, or an absolute path instead.
+## Session and delivery
 
-Recurring in 81175d0e (exit 128 ×3, "not a git repository"), e17314ef (cwd leaked into
-`git add`), and 0ad310c2 (model noted the recurrence itself). It is still recurring: on
-2026-08-10 it silently produced 121 empty files in a 122-file batch — `2>/dev/null` hid the
-error — and then made a corpus-wide grep return 0 hits from the wrong directory. Both were
-caught only by sanity-checking the count, which is the real lesson: **a loop that reports
-success without a count is not verified.**
+- **Hazard check before any push:** `git log origin/<trunk>..HEAD --stat`; list what unpushed commits
+  ADD (client data, exports, secrets, binaries, `*.jsonl`, scratch md) and untrack them first.
+- **Deliverables live in GitHub, not local files.** One master issue (checklist body + log section;
+  prompts and context as comments); close superseded issues with a pointer; open PRs. When the
+  user says post, merge or close, do it; don't stop at a plan.
+- **Status:** while the user waits on agents, one line with counts ("3 of 5 lanes
+  landed, 1 running, 1 blocked: <cmd>"), not prose. Never say "done" while any lane is unfinished.
+  No completion percentages without a real denominator.
+- Merges, deploys, bulk deletes, force pushes and prod data mutations need fresh confirmation that
+  names the action. Cheap reversible work inside a grant gets done, not deferred.
+
+## Repo hygiene, docs and testing — house rules
+
+- **Worktrees are disposable.** Remove yours as soon as its work is merged or abandoned
+  (`git worktree remove`, then delete the branch). `wt-clean` runs at session start.
+- **Few markdown files.** No new plans, handoffs, reports or summaries in repos: use the PR, the
+  commit, the master issue or an existing doc. One owner doc per domain; README + a handful of
+  owner docs is the target. Delete or merge stale, duplicated or dated docs.
+- **Consolidating docs** needs a preservation ledger (every doc read and dispositioned) and an
+  adversarial review (`document-consolidation`, `qa DOCS`).
+- **Agent manuals (CLAUDE.md, AGENTS.md) hold rules only:** no dated narrative, no file:line cites,
+  no counts a test already pins, no links to deleted docs, no mutable state.
+- **Enforce hygiene mechanically:** a make target that fails on forbidden tracked files (`*.jsonl`,
+  client exports, scratch HANDOFF/SESSION/PLAN md, tool caches), run as a step of the existing pipeline (not a new job), plus a pre-commit hook.
+- **Tests: end-to-end and smoke only.** No new unit or integration tests. Prove behavior with E2E
+  tests that drive the real app (`qa STORIES`, Playwright via `pw`) and smoke checks (it boots,
+  the key route answers, the CLI runs). A standalone script's smoke test is its E2E.
+- **Minimal CI/CD.** One pipeline: build, smoke, E2E, deploy. No new jobs, matrices or workflows
+  unless the user asks. GitHub-hosted CI is not a gate (a repo whose own deploy pipeline gates releases follows its manual): local gates (`once <cmd>`) are the evidence.
+- **Better code over more code.** Reuse an existing helper before writing one; extract a shared one
+  when the second copy appears; delete dead code you touch.
 
 ## Code intelligence (LSP)
 
-For TypeScript/JavaScript (`typescript-lsp` → `typescript-language-server`), Go
-(`gopls-lsp` → `gopls`), and Python (`pyright-lsp` → `pyright-langserver`),
-prefer the `LSP` tool over grep/text search whenever the task involves:
+For TypeScript/JavaScript, Go and Python, prefer the `LSP` tool over grep for definitions,
+references, renames, diagnostics and hover types (load it via `ToolSearch("select:LSP")`). Fall back
+to grep only when LSP returns nothing useful.
 
-- finding a symbol's definition or all of its references
-- renaming a symbol across the codebase
-- checking diagnostics / type errors before declaring a change done
-- getting hover / type information for a function, variable, or import
+- Before changing a shared symbol run `findReferences`; after, `hover` to confirm types. Treat pushed
+  `<new-diagnostics>` as a correctness gate. Tell spawned agents to do the same.
+- LSP works only after indexing (Go: `go.mod` + deps; TS: `tsconfig.json` + `node_modules`). On "still
+  indexing", warm it with `documentSymbol`, then retry `workspaceSymbol`.
+- gopls may warn about worktree modules or cache deleted worktree roots: harmless; restart gopls.
 
-If the `LSP` tool's schema isn't loaded yet, load it first via
-ToolSearch (`select:LSP`), then call it. Fall back to grep only when LSP
-returns nothing useful (e.g. the language server isn't running for that repo).
+## Tools
 
-### Use it in fixes and in workflows
-- **When fixing/refactoring** (TS/JS via typescript-lsp, Go via gopls-lsp): run
-  `findReferences` on a shared symbol before changing it, and `hover` to confirm types
-  after. Treat the `<new-diagnostics>` pushed after edits as a real correctness gate —
-  resolve them before calling a change done.
-- **In `Workflow` runs:** instruct spawned agents to use the same `LSP` tool (load via
-  `ToolSearch("select:LSP")`) for navigation + to honor diagnostics. Agents inherit the
-  session's running language servers.
-
-### Caveats
-- LSP resolves only after the server has **indexed** the repo: Go needs `go.mod` + deps;
-  TS/JS needs `tsconfig.json`/`package.json` + installed `node_modules`. First call on a
-  big repo may say "still indexing" — warm it with a `documentSymbol` call, then retry
-  `workspaceSymbol`.
-- **git worktrees:** gopls treats each worktree module as separate and may warn "file is
-  within module … not included in your workspace", and can cache roots for *deleted*
-  worktrees. Harmless noise; restart gopls (or the session) to clear it.
-- Speed: one LSP call is marginally slower than a single grep on a cold index, but for
-  symbol work it's more accurate and usually faster overall than grep + reading files, and
-  it won't false-match comments/strings. Prefer it.
-# graphify
-- **graphify** — any input to knowledge graph. Trigger: `/graphify`. The CLI lives at
-  `~/.local/bin/graphify` (`graphify query|explain|path`); there is no SKILL.md for it.
-
-## Repo hygiene and testing — house rule (2026-10-23)
-
-- **Worktrees are disposable.** Remove yours as soon as its work is merged or abandoned
-  (`git worktree remove`, then delete the branch). `wt-clean` runs at session start; don't leave work for it.
-- **Few markdown files.** Don't create new .md files (plans, handoffs, reports, summaries) in repos —
-  put it in the PR, the commit, or an existing doc. When you see stale, duplicated or dated docs, delete
-  or merge them (`document-consolidation` / `qa DOCS`). README + a handful of owner docs is the target.
-- **Tests: end-to-end and smoke only.** Don't write new unit or integration tests. Prove behavior with
-  E2E tests that drive the real app (`qa STORIES`, Playwright via `pw`) and fast smoke checks
-  (it boots, the key route answers, the CLI runs). For a standalone script, its smoke test is the E2E.
-- **Minimal CI/CD.** One pipeline: build, smoke, E2E, deploy. No new jobs, matrices or workflows
-  unless the user asks.
-- **Better code over more code.** Reuse an existing helper/component before writing one; extract a
-  shared one when the second copy appears; delete dead code you touch.
+- **graphify** — any input to knowledge graph. Trigger `/graphify`; CLI `~/.local/bin/graphify`
+  (`graphify query|explain|path`); no SKILL.md.
+- Session commands: `/start` (open a session), `/wrap` (close a session; pair with `harvest`) and
+  `/mission` (long autonomous runs, with its own per-phase wrap). Codex mirrors all three via `~/.claude/commands/.codex/sync.sh`.

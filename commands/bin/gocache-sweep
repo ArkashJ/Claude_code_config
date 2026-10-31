@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# usage: gocache-sweep [--apply] | --self-test
+# List /tmp/gocache-* dirs (the per-lane GOCACHEs lane-new.sh hands out) with sizes. A dir is KEPT if
+# its suffix names an existing worktree dir under any */.claude/worktrees/ in ~/Developer (find
+# -maxdepth 5), or if an open process holds a file in it. Dry run by default; --apply removes the rest.
+# Last line: "delete N dirs (X GiB), keep M" (and "removed N" after --apply).
+set -euo pipefail
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
+TMP=${GOCACHE_TMP:-/tmp}
+SEARCH=${GOCACHE_SEARCH:-/Users/arkashjain/Developer}
+
+# basenames of every worktree dir; names of caches some process has open (one lsof call, not lsof +D)
+worktree_names() { find "$SEARCH" -maxdepth 5 -type d -path '*/.claude/worktrees/*' 2>/dev/null | sed -n 's#.*/\.claude/worktrees/\([^/]*\).*#\1#p' | sort -u; }
+open_caches() { [ "${GOCACHE_NO_LSOF:-0}" = 1 ] || { lsof -Fn 2>/dev/null | grep -o 'gocache-[^/]*' | sort -u || true; }; }
+
+run() { # [--apply]
+  local apply=$1 names open dir name kib total_kib=0 del=0 keep=0 removed=0 why
+  names=$(worktree_names) open=$(open_caches)
+  for dir in "$TMP"/gocache-*; do
+    [ -d "$dir" ] || continue
+    name=${dir##*/} why=""
+    if grep -qxF "${name#gocache-}" <<<"$names"; then why="worktree exists"
+    elif grep -qxF "$name" <<<"$open"; then why="open by a process"
+    fi
+    kib=$(du -sk "$dir" | cut -f1)
+    if [ -n "$why" ]; then
+      keep=$((keep + 1)); printf 'keep    %8s MiB  %s  (%s)\n' $((kib / 1024)) "$dir" "$why"
+    else
+      del=$((del + 1)); total_kib=$((total_kib + kib)); printf 'delete  %8s MiB  %s\n' $((kib / 1024)) "$dir"
+      if [ "$apply" = 1 ]; then rm -rf -- "${dir:?}"; removed=$((removed + 1)); fi
+    fi
+  done
+  echo "delete $del dirs ($(awk -v k="$total_kib" 'BEGIN { printf "%.2f", k / 1048576 }') GiB), keep $keep"
+  if [ "$apply" = 1 ]; then echo "removed $removed"; fi
+}
+
+self_test() {
+  [[ $("$0" -h) == usage:* ]] || { echo "SELF-TEST FAIL: -h does not print usage" >&2; exit 1; }
+  local d out
+  d=$(mktemp -d /tmp/gocache-sweep-selftest.XXXXXX)
+  mkdir -p "$d/tmp/gocache-live" "$d/tmp/gocache-gone" "$d/tmp/gocache-also-gone" "$d/search/proj/.claude/worktrees/live"
+  head -c 1048576 /dev/zero >"$d/tmp/gocache-gone/blob"
+  out=$(GOCACHE_TMP="$d/tmp" GOCACHE_SEARCH="$d/search" GOCACHE_NO_LSOF=1 "$0")
+  grep -q '^delete 2 dirs (.* GiB), keep 1$' <<<"$out" || { echo "SELF-TEST FAIL: dry run: $out" >&2; exit 1; }
+  [ -d "$d/tmp/gocache-gone" ] || { echo "SELF-TEST FAIL: dry run deleted something" >&2; exit 1; }
+  out=$(GOCACHE_TMP="$d/tmp" GOCACHE_SEARCH="$d/search" GOCACHE_NO_LSOF=1 "$0" --apply)
+  grep -qx 'removed 2' <<<"$out" && [ ! -e "$d/tmp/gocache-gone" ] && [ ! -e "$d/tmp/gocache-also-gone" ] && [ -d "$d/tmp/gocache-live" ] || { echo "SELF-TEST FAIL: apply: $out" >&2; exit 1; }
+  rm -rf -- "${d:?}"
+  echo "gocache-sweep self-test: ok"
+}
+
+case ${1:-} in
+  -h|--help) usage; exit 0 ;;
+  --self-test) self_test ;;
+  --apply) run 1 ;;
+  "") run 0 ;;
+  *) echo "unknown arg: $1 (try -h)" >&2; exit 2 ;;
+esac

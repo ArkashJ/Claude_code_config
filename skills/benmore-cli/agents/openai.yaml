@@ -1,0 +1,4 @@
+interface:
+  display_name: "Benmore app development"
+  short_description: "Build, debug, and ship hosted Benmore apps"
+  default_prompt: "Use $benmore-cli to inspect this Benmore app, implement the requested change, and verify it on the deployed environment."

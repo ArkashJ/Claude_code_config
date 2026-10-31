@@ -1,6 +1,4 @@
-Codex-adapted variants of the session commands. Hand-adapted from ../start.md etc.
-(Claude-specific mechanics removed: Skill invocations, subagent model tiering).
-Dot-dir so Claude Code's command scanner ignores it. sync.sh copies these to
-~/.codex/prompts/ where Codex exposes them as /start, /wrap, /checkpoint, /mission.
-DRIFT: sync.sh regenerates wrap.prompt from ../wrap.md, and exits 1 when any other variant
-lacks a "## " section of its source that is not listed in OMIT.
+Codex mirror of the session commands, /start, /wrap and /mission.
+sync.sh generates <name>.prompt from ../<name>.md (plus <name>.codex-extra for Codex-only rules)
+and copies it to ~/.codex/prompts/<name>.md and ~/.agents/skills/<name>/SKILL.md.
+Edit ../start.md, ../wrap.md or ../mission.md, never the generated files. Dot-dir so Claude's command scanner ignores it.

@@ -35,3 +35,6 @@ settings.local.json
 /skills/synced/
 /plugins/plugin-catalog-cache.json
 .playwright-cli/
+/plugins/plugin-directory-cache-v2.json
+# impeccable ships a 16MB per-platform binary; its launcher falls back to ~/.impeccable/bin.
+/skills/impeccable/scripts/bin/

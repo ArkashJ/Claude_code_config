@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# usage: wait-for file [--from-start] <path> <ERE> [timeout_s=1800] | url <url> <ERE> [timeout_s] | cmd '<shell cmd>' [timeout_s] | --self-test
+# Block until a condition holds, then print the matching line and the elapsed time. Exit 0 on match,
+# 124 on timeout. The sanctioned way for a session to wait: run it with run_in_background and act on
+# the completion notification (never `sleep N`, `read -t` or a spin loop; guard-bash.sh blocks those).
+#   file  first line of <path> matching the ERE (path may not exist yet); fswatch -1 wakes it early if installed.
+#         Only lines appended AFTER wait-for starts count (a reused log still holding last run's "DONE" would
+#         otherwise match at once); --from-start also scans what is already in the file.
+#   url   first line of the GET body matching the ERE (curl -fsS, so file:// works too)
+#   cmd   succeeds when the command exits 0
+# Polls every ${WAIT_FOR_INTERVAL:-5}s.
+set -euo pipefail
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
+INTERVAL=${WAIT_FOR_INTERVAL:-5}
+
+pause() { # <seconds>: wake early on a file change when fswatch exists and the file does too
+  local fp wp
+  if [ -n "${WATCH:-}" ] && [ -e "$WATCH" ] && command -v fswatch >/dev/null 2>&1; then
+    fswatch -1 "$WATCH" >/dev/null 2>&1 &
+    fp=$!
+    (command sleep "$1"; kill "$fp" 2>/dev/null || true) &
+    wp=$!
+    wait "$fp" 2>/dev/null || true
+    kill "$wp" 2>/dev/null || true
+  else
+    command sleep "$1"
+  fi
+}
+
+# poll <timeout_s> <probe-fn>: probe prints the matching line and returns 0 when satisfied
+poll() {
+  local timeout=$1 probe=$2 line left
+  while :; do
+    if line=$("$probe"); then
+      echo "matched: $line"
+      echo "elapsed=${SECONDS}s"
+      return 0
+    fi
+    left=$((timeout - SECONDS))
+    if [ "$left" -le 0 ]; then
+      echo "wait-for: timeout after ${timeout}s waiting for $WHAT" >&2
+      return 124
+    fi
+    pause "$((left < INTERVAL ? left : INTERVAL))"
+  done
+}
+
+probe_file() { # scan from OFFSET (bytes already present at start); a file that shrank was rotated: rescan it all
+  local sz off=$OFFSET
+  [ -f "$ARG1" ] || return 1
+  sz=$(wc -c <"$ARG1" | tr -d ' ')
+  [ "$sz" -ge "$off" ] || off=0
+  tail -c +$((off + 1)) "$ARG1" | grep -E -m1 -- "$ARG2"
+}
+probe_url() { curl -fsS --max-time 15 "$ARG1" 2>/dev/null | grep -E -m1 -- "$ARG2"; }
+probe_cmd() { bash -c "$ARG1" >/dev/null 2>&1 && echo "exit 0: $ARG1"; }
+
+self_test() {
+  [[ $("$0" -h) == usage:* ]] || { echo "SELF-TEST FAIL: -h does not print usage" >&2; exit 1; }
+  local d rc err
+  d=$(mktemp -d /tmp/wait-for-selftest.XXXXXX)
+  export WAIT_FOR_INTERVAL=1
+  (command sleep 2; echo "noise" >>"$d/f"; echo "READY build 42" >>"$d/f") &
+  "$0" file "$d/f" 'READY build [0-9]+' 20 | grep -q '^matched: READY build 42$' || { echo "SELF-TEST FAIL: file" >&2; exit 1; }
+  echo "hello url-line" >"$d/u"
+  "$0" url "file://$d/u" 'url-line' 5 | grep -q '^matched: hello url-line$' || { echo "SELF-TEST FAIL: url" >&2; exit 1; }
+  (command sleep 2; touch "$d/flag") &
+  "$0" cmd "test -f $d/flag" 20 | grep -q '^matched: exit 0' || { echo "SELF-TEST FAIL: cmd" >&2; exit 1; }
+  rc=0
+  "$0" cmd false 2 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 124 ] || { echo "SELF-TEST FAIL: timeout exit was $rc, want 124" >&2; exit 1; }
+  # fswatch path, exercised with a shim that returns at once
+  mkdir "$d/bin"
+  printf '#!/bin/sh\nexit 0\n' >"$d/bin/fswatch"
+  chmod +x "$d/bin/fswatch"
+  # lines already in the file must NOT match unless --from-start; appended ones must
+  echo "OLD-DONE from a previous run" >"$d/h"
+  rc=0
+  "$0" file "$d/h" 'OLD-DONE' 2 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 124 ] || { echo "SELF-TEST FAIL: stale line matched without --from-start (exit $rc)" >&2; exit 1; }
+  "$0" file --from-start "$d/h" 'OLD-DONE' 2 | grep -q '^matched: OLD-DONE' || { echo "SELF-TEST FAIL: --from-start did not match the existing line" >&2; exit 1; }
+  (command sleep 2; echo "NEW-DONE" >>"$d/h") &
+  "$0" file "$d/h" 'DONE' 20 | grep -q '^matched: NEW-DONE$' || { echo "SELF-TEST FAIL: appended line after a stale one not matched" >&2; exit 1; }
+  echo "later" >"$d/g"
+  (command sleep 2; echo "GO" >>"$d/g") &
+  PATH="$d/bin:$PATH" "$0" file "$d/g" '^GO$' 20 | grep -q '^matched: GO$' || { echo "SELF-TEST FAIL: fswatch path" >&2; exit 1; }
+  rc=0
+  "$0" file "$d/g" 'NEVER-APPEARS' 2 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 124 ] || { echo "SELF-TEST FAIL: file timeout exit was $rc, want 124" >&2; exit 1; }
+  rc=0
+  "$0" url "file://$d/u" 'NEVER-APPEARS' 2 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 124 ] || { echo "SELF-TEST FAIL: url timeout exit was $rc, want 124" >&2; exit 1; }
+  rc=0
+  "$0" bogus >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || { echo "SELF-TEST FAIL: bad mode exit was $rc, want 2" >&2; exit 1; }
+  # a matched run must end clean: nothing on stderr after the match, exit 0
+  err=$("$0" cmd true 5 2>&1 >/dev/null) || { echo "SELF-TEST FAIL: cmd true exited non-zero" >&2; exit 1; }
+  [ -z "$err" ] || { echo "SELF-TEST FAIL: stderr after match: $err" >&2; exit 1; }
+  rm -rf -- "${d:?}"
+  echo "wait-for self-test: ok"
+}
+
+main() {
+  local FROM_START=0 a rest=()
+  for a in "$@"; do if [ "$a" = --from-start ]; then FROM_START=1; else rest+=("$a"); fi; done
+  set -- ${rest[@]+"${rest[@]}"}
+  case ${1:-} in
+    -h|--help|"") usage; exit 0 ;;
+    --self-test) self_test; exit 0 ;;
+    file) ARG1=${2:?path} ARG2=${3:?ERE} T=${4:-1800}; WATCH=$ARG1 WHAT="$ARG2 in $ARG1"
+      OFFSET=0; if [ "$FROM_START" -ne 1 ] && [ -f "$ARG1" ]; then OFFSET=$(wc -c <"$ARG1" | tr -d ' '); fi
+      poll "$T" probe_file ;;
+    url) ARG1=${2:?url} ARG2=${3:?ERE} T=${4:-1800}; WHAT="$ARG2 at $ARG1"; poll "$T" probe_url ;;
+    cmd) ARG1=${2:?command} ARG2="" T=${3:-1800}; WHAT="'$ARG1' to exit 0"; poll "$T" probe_cmd ;;
+    *) echo "unknown mode '$1' (file|url|cmd; try -h)" >&2; exit 2 ;;
+  esac
+}
+# One line, so bash has parsed the whole script before running it: editing this file while an instance runs cannot break that instance.
+main "$@"; exit $?
