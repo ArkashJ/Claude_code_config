@@ -13,9 +13,7 @@ never skip silently.
   (with the untruncated count), `gh auth status`. Check token scopes against the task (merging a PR
   that touches CI needs `workflow`). Query remote/branch/PR state; never infer it from local git.
   Never fork from a branch an open PR already owns.
-- **Hazard check before anything is pushed:** `git log origin/<trunk>..HEAD --stat`. List what the
-  unpushed commits ADD: client data or exports, secrets, binaries, `*.jsonl`, scratch
-  HANDOFF/SESSION/PLAN markdown, tool caches. Untrack or move them first.
+- Hazard check (CLAUDE.md) on any unpushed commits: `git log origin/<trunk>..HEAD --stat`.
 - Dead predecessor: an open draft PR with a "Checkpoint log" comment and no final handoff means a
   session died. Report where it stopped; ask resume or fresh.
 - Run `~/.claude/commands/bin/repo-hygiene.sh` (exit 1 = stale) and act on it. It deletes nothing;
@@ -31,12 +29,7 @@ Drive, Notion), sibling repos, deployed state. Counts come from the untruncated 
 contract: any "done / covered" claim cites it and names what was not read. If you don't know
 where the client's truth lives, ask once.
 
-- **Depth before plan.** Before writing any plan or checklist from a corpus (client docs, CSVs,
-  specs, issues), enumerate it as files × lines/bytes and read EVERY decision-relevant file in full.
-  Never sample a rules CSV or an answer key. Every plan states "read N of N files"; below 100%, say
-  so first and finish reading before writing.
-- **Find the oracle.** Ask what already exists upstream (the client's own engine, ledger, report,
-  answer key) and make it the acceptance test. Port it; don't reinvent it.
+- Depth before plan and find the oracle (CLAUDE.md): every plan states "read N of N files".
 - Fan out parallel readers by folder (routing per CLAUDE.md). Each returns a distilled brief
   (decisions, open questions, gotchas, with PR/issue numbers and coverage), not raw dumps. Deep
   on what intersects the task, counts only for the rest. More than ~10 exploration commands in the
@@ -47,7 +40,7 @@ where the client's truth lives, ask once.
 List the installed skills that fit and say when you will use them: frontend or "is it working" →
 `qa` (STORIES, HUNT, REVIEW, MEASURE) and `playwright-cli` via `pw`; UI look/states/copy →
 `impeccable`, `ui-stress`, `design-director`; session mistakes → `harvest`; anything over ~an hour
-or "overnight" → `/mission`, not a plan handed back. If a listed skill does not fit, say why.
+or "overnight" → `/mission`, not a plan handed back; closing → `/wrap`. If a listed skill does not fit, say why.
 
 ## 3. Isolate, commit, push, checkpoint — continuously, without being asked
 
@@ -62,10 +55,6 @@ Log `SURPRISE: <expected X, got Y>` and `FALSIFIED: <claim vs test>` the moment 
 the human says "checkpoint" or is leaving: do this now, say which in-flight agents' work is pushed
 and which would die with them, and start nothing new.
 
-**Deliverables live in GitHub, not local files.** One master issue (checklist body + log section;
-prompts and context as comments); close superseded issues with a pointer; open PRs. When the user
-asks to post, merge or close, do it; don't stop at a plan.
-
 ## 4. Delegate — agents and workflows, tiered by cost
 
 Model routing is in CLAUDE.md. Foreground subagents only. Every brief carries the shell rules (no
@@ -78,11 +67,8 @@ PRs; per-lane DB/fixture names.
 - Claims about remote, deployed, DB or runtime state show proving output from that source, not the
   repo, a green pipeline, an HTTP 200 or an exit code. After any write, read it back.
   A report on a runnable app states whether the app was run.
-- **Prod evidence over code reading:** measure behavior from logs/CI/build history (counts per day,
-  p50/p95, pass rates) before claiming it.
-- **Verify agents:** spot-check every load-bearing agent claim (recompute the arithmetic, grep the
-  symbol, open the row) before relaying it. Run a cold adversarial reviewer (opus, never shown the
-  author's reasoning) on every artifact before shipping; expect 20–30 findings on a big rewrite.
+- Prod evidence over code reading, spot-check agent claims, and a cold opus adversary on every
+  artifact (CLAUDE.md "Verify before you relay").
 
 ## 6. Status — volunteered, never polled
 
