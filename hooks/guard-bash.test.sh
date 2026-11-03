@@ -90,4 +90,10 @@ check 2 "Retarget first" 'gh pr merge 10 -R o/r --squash --delete-branch --admin
 check 0 "" 'gh pr merge 20 -R o/r --squash --delete-branch --admin'
 check 0 "" 'gh pr merge 10 -R o/r --squash --admin'
 unset GUARD_GH; rm -rf "$S"
+# unquoted heredoc with backticks: 2026-11-02, markdown backticks ran as commands
+check 2 "unquoted heredoc" $'cat > /tmp/b.md <<EOF\nuse `make check` first\nEOF'
+check 2 "unquoted heredoc" $'gh pr comment 1 --body-file - <<-BODY\nran `ls`\n\tBODY'
+check 0 "" $'cat > /tmp/b.md <<\'EOF\'\nuse `make check` first\nEOF'
+check 0 "" $'cat > /tmp/b.md <<"EOF"\nuse `make check`\nEOF'
+check 0 "" $'cat > /tmp/b.md <<EOF\nplain $HOME text\nEOF\necho `date`'
 [ $fail = 0 ] && echo "guard-bash self-test: PASS" || { echo "guard-bash self-test: FAIL"; exit 1; }

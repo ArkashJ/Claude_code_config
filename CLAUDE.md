@@ -48,6 +48,9 @@ The harness resets cwd between calls and the guard rejects `cd X && cmd` and `; 
 paths, `git -C`, `bun --cwd`. `rm` targets are literal paths or `"${VAR:?}"`. **A loop that reports
 success without a count is not verified:** print the count and sanity-check it (`2>/dev/null` has
 hidden 121 empty files in a 122-file batch).
+**Scripted text replaces anchor on the target's own unique name** (e.g. `_tool("name",`, never a shared marker
+like `description=`) and assert the match count before writing (`assert s.count(old) == 1`). Quote heredoc
+delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a backtick).
 
 ## Session and delivery
 

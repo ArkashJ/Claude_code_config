@@ -102,4 +102,17 @@ if printf '%s' "$cmd" | grep -Eq '(^|[;&|][[:space:]]*)git([[:space:]]+-C[[:spac
         exit 2
     fi
 fi
+# 2026-11-02 (S1 war room): an unquoted `<<EOF` heredoc carrying markdown ran its `backticks` as
+# commands and posted mangled text. Inside an unquoted heredoc, `x` is command substitution.
+if printf '%s' "$cmd" | python3 -c '
+import re, sys
+s = sys.stdin.read()
+for m in re.finditer(r"<<-?[ \t]*([A-Za-z_][A-Za-z0-9_]*)[^\n]*\n", s):
+    end = re.search(r"(?m)^[ \t]*" + m.group(1) + r"[ \t]*$", s[m.end():])
+    if "`" in s[m.end(): m.end() + end.start() if end else len(s)]:
+        sys.exit(1)
+'; then :; else
+    echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: an unquoted heredoc (<<EOF) whose body contains a backtick; the shell runs it as a command. Quote the delimiter (<<'EOF') and pass variables another way (argv, env, --body-file)." >&2
+    exit 2
+fi
 exit 0
