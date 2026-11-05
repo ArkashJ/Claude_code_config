@@ -27,8 +27,6 @@ import concurrent.futures as cf, glob, json, os, re, subprocess, sys, tempfile, 
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path.home() / ".claude/skills/qa"))
-from hunt import api_key, ask  # noqa: E402  (shared Jev client: retries, pinned model, UA fix)
 
 LEAD, READ = 0.70, 0.30  # jev.md band: act above LEAD, Claude reads the middle, drop below READ
 
@@ -167,7 +165,70 @@ def load_turns(path, cmd=None):
     return red, turns
 
 
+def inventory(path):
+    """Offline structured exit inventory; not a complete tool-failure detector."""
+    records = exits = failures = malformed = fragments = 0
+
+    def visit(value):
+        nonlocal exits, failures, fragments
+        if isinstance(value, dict):
+            code = value.get("exit_code")
+            if isinstance(code, int) and not isinstance(code, bool):
+                exits += 1
+                failures += code != 0
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+        elif isinstance(value, str):
+            # Decode complete multiline or concatenated JSON at the start of output lines.
+            decoder = json.JSONDecoder()
+            pos = 0
+            while pos < len(value):
+                match = re.search(r"(?m)^[ \t]*[\{\[]", value[pos:])
+                if not match:
+                    break
+                pos += match.end() - 1
+                while pos < len(value) and value[pos] in "{[":
+                    try:
+                        child, end = decoder.raw_decode(value, pos)
+                    except ValueError:
+                        fragments += 1
+                        pos = value.find("\n", pos)
+                        pos = len(value) if pos < 0 else pos + 1
+                        break
+                    visit(child)
+                    pos = end
+                    while pos < len(value) and value[pos] in " \t":
+                        pos += 1
+
+    with path.open(errors="replace") as fh:
+        for line in fh:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                malformed += 1
+                continue
+            if not isinstance(record, dict) or ("payload" in record and not isinstance(record["payload"], dict)):
+                malformed += 1
+                continue
+            payload = record.get("payload", {})
+            if payload.get("type") in ("function_call_output", "custom_tool_call_output"):
+                records += 1
+                visit(payload.get("output"))
+    print(f"offline inventory: {records} tool output records, {exits} structured exit codes, "
+          f"{failures} nonzero; {malformed} malformed transcript lines; {fragments} unparsed output fragments")
+    print("Jev: unmeasured; structured exits are not all tool failures or all commands")
+    return 2 if malformed or fragments or not records or not exits else 0
+
+
 def main():
+    if sys.argv[1:2] == ["--inventory"]:
+        path = transcript(sys.argv[2:])
+        if not path or not path.exists():
+            sys.exit(print("no transcript found; pass its path", file=sys.stderr) or 2)
+        sys.exit(inventory(path))
     path = transcript(sys.argv[1:])
     if not path or not path.exists():
         sys.exit(print("no transcript found; pass its path", file=sys.stderr) or 2)
@@ -175,6 +236,8 @@ def main():
     if not turns:
         sys.exit(print(f"0 human turns read from {path} by harness-extractor: unable to measure (Codex needs extractor > 1.0.0)", file=sys.stderr) or 2)
     print(f"transcript ({'codex' if '/.codex/' in str(path) else 'claude'}): {path}\nsession: {red['meta'].get('session')}  start: {red['meta'].get('start')}  cwd: {red['meta'].get('cwd')}  human turns: {len(turns)} ({Counter(t['kind'] for t in turns)['mid-turn']} typed mid-turn, {Counter(t['kind'] for t in turns)['answer']} question answers, {Counter(t['kind'] for t in turns)['unclassified']} unclassified)")
+    sys.path.insert(0, str(Path.home() / ".claude/skills/qa"))
+    from hunt import api_key, ask
     key = api_key()
 
     def judge(i):

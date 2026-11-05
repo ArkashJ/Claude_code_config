@@ -2,15 +2,20 @@
 description: Close a session — land, run the dynamic QA gate, release (one batched go), derive changelog/issues/handoff from git and gh, end on a computed SAFE TO END line
 ---
 
+
 Close this session. Derive every artifact from git, gh and the /start enumeration; never
 hand-write what a command computes. Run the steps in order. A step that does not apply gets one
 line saying why, never silence. `<start>` is the session start (the `start` field printed by
 `signals.py`, or the first commit time of this session).
 
-## 0. Harvest first, if it ran
+## 0. Harvest the session
 
-Harvest builds and commits guards; wrap lands, releases and hands off. Every signal harvest left
-undispositioned goes into step 9's "Not done".
+For every substantive session, run the adaptive opportunity pass in harvest after delivering the
+requested work. Investigate evidence and worthwhile bounded experiments, then disposition every
+suggestion and signal. Trivial exchanges need no pass. Preserve authorization boundaries: a wrap or
+harvest does not itself authorize production changes, spend, external messages, or data uploads.
+Harvest guards only when justified; wrap handles the handoff. Carry unresolved suggestions, signals,
+and unmeasured evidence into step 9's "Not done".
 
 ## 1. Land
 
@@ -22,14 +27,16 @@ undispositioned goes into step 9's "Not done".
 ## 2. Dynamic QA gate: run what changed, in the browser and the suite
 
 Each line runs when its condition holds; exit 2 from any of them is "unmeasured", never a pass.
+Audit-only requests remain read-only. Run provider-backed hunt or sweep only when actual code transfer
+is authorized and only against authorized repositories; never bypass a prior rejection.
 
 ```bash
 Q=~/.claude/skills/qa
 python3 $Q/stories.py check <repo>                      # docs/stories.jsonl exists
 python3 $Q/stories.py run <repo> --since <start>         # runs the E2E journeys of the stories this session's tests cite
 qa verify <repo> --base <running app URL>                # frontend changed and the app is served; then `qa show diff <repo>`
-python3 $Q/hunt.py <repo> --since <start>                # React/TanStack files changed
-python3 $Q/sweep.py run <family> --all-repos             # a bug was fixed and its family is calibrated
+python3 $Q/hunt.py <authorized repo> --since <start>     # React/TanStack changed; code transfer authorized
+python3 $Q/sweep.py run <family> --repo <authorized repo> # calibrated family; code transfer authorized
 ```
 
 A FAIL is fixed now or becomes an issue; it never ships under a "done". Siblings the sweep
@@ -52,16 +59,17 @@ Find the release path, in this order: the repo's CLAUDE.md/AGENTS.md release sec
 `release`/`deploy`/`publish` target in Makefile or package.json scripts, a tag-triggered workflow
 in `.github/workflows`. Then stage the full sequence:
 
-1. Merge: `gh pr merge <n> --squash --delete-branch`. Use `--admin` only when hosted CI alone
-   blocks it, and only with step 1's local gate output in the PR.
+1. Merge: `gh pr merge <n> --squash --delete-branch`. Respect branch protection and required
+   reviews; do not bypass them.
 2. Tag, if the repo has tags or a tag-triggered workflow: next semver from `git describe --tags
    --abbrev=0` (breaking → major, `feat` → minor, else patch), `git tag vX.Y.Z <merge sha> && git
    push origin vX.Y.Z`, then `gh release create vX.Y.Z --notes "<this wrap's changelog entry>"`.
    A repo with no tags gets no invented first tag; offer it as a question option instead.
 3. Deploy: the repo's own deploy command, if it has one.
 
-Ask ONCE with the interactive question tool, naming every command above, recommended option
-"go". On go, run them in order and stop at the first failure. Then read each one back:
+Release only where already authorized, respecting explicit exclusions. Existing exact authorization
+counts; do not ask again. If required authorization is missing, ask once naming the proposed commands.
+Run authorized steps in order and stop at the first failure. Then read each one back:
 `gh pr view <n> --json state,mergeCommit`, `gh release view vX.Y.Z`, and for a deploy, curl the
 live URL for the NEW behavior. A missing old string passes on any error page, so it proves
 nothing. No release path at all: say so in one line.
@@ -85,8 +93,10 @@ worktree wt-clean kept needs confirmation; fold it into step 4's question.
 
 ## 7. Prove every ask
 
-`python3 ~/.claude/skills/harvest/signals.py` (skip if harvest just printed ASKS). Report
-`asks proven X of N`; an unproven ask goes in "Not done" with its failing command.
+Use the locally read human turns to inventory asks and prove each with an appropriate readback.
+Run `signals.py --inventory` offline if needed. Use ordinary `signals.py` only when actual transcript
+data transfer to Jev is authorized; respect any prior rejection. Report `asks proven X of N`; an
+unproven ask goes in "Not done" with its failing command.
 
 | kind | proof |
 |---|---|
