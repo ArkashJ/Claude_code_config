@@ -213,6 +213,18 @@ def inventory(path):
             if not isinstance(record, dict) or ("payload" in record and not isinstance(record["payload"], dict)):
                 malformed += 1
                 continue
+            # Claude Code transcripts carry tool results as message.content[].tool_result, not Codex payloads: without this
+            # branch a 4,893-line Claude session inventoried as "0 tool output records" (harvest 2026-11-09, #1324 run).
+            msg = record.get("message")
+            if isinstance(msg, dict) and isinstance(msg.get("content"), list):
+                for block in msg["content"]:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        records += 1
+                        exits += 1
+                        body = block.get("content")
+                        text = body if isinstance(body, str) else json.dumps(body)
+                        code = re.match(r"Exit code (\d+)", text or "")
+                        failures += bool(block.get("is_error")) or bool(code and code.group(1) != "0")
             payload = record.get("payload", {})
             if payload.get("type") in ("function_call_output", "custom_tool_call_output"):
                 records += 1
