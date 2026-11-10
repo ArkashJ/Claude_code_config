@@ -12,6 +12,11 @@ A `WHERE outcome = X` drops the complement as silently as `| head`: count both s
   by folder (routing below). Never sample a rules CSV or an answer key.
 - Every plan states coverage: "read N of N files". Below 100%, say so first and finish reading
   before writing. A plan written from a sample gets rewritten after the user demands depth.
+- **Depth gates the plan, not the fixes.** A defect confirmed with file:line or a failing spec goes
+  to a fixer lane that hour; a validation lane fixes in-lane when the fix is local to its files.
+  Never hold confirmed defects until every lane reports (Measured 11-08: defects confirmed 03:50,
+  first fixer 05:42, user: "WHAT WERE YOU DOING FOR ALL THESE HOURS"). Ask for the merge grant
+  with the plan, not after the PRs pile up.
 - **Find the oracle.** Ask what already exists upstream (the client's own engine, ledger, report,
   answer key) and make it the acceptance test. Port it; don't reinvent it.
 
@@ -34,6 +39,10 @@ A `WHERE outcome = X` drops the complement as silently as `| head`: count both s
 
 Subagents run in the foreground. Each brief carries the shell rules below, ONE output path, and the
 exact proof command. One worktree per writing agent; no file-set overlap between lanes.
+Briefs say: "never end your turn while your own background job runs; write your output doc as you
+go" (Measured 11-08: a reviewer parked on its own job, reported 66 min late, doc half-written).
+Remove a lane's worktree the moment its PR merges: a leftover checkout locks the branch for the
+next lane. Prod reads a subagent needs go through the integrator, whose grant covers them.
 
 ## Never `sleep` to wait
 
@@ -64,6 +73,22 @@ delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a back
   No completion percentages without a real denominator.
 - Merges, deploys, bulk deletes, force pushes and prod data mutations need fresh confirmation that
   names the action. Cheap reversible work inside a grant gets done, not deferred.
+
+## Model state mathematically — invalid states unrepresentable
+
+- Before writing or changing stateful code, name its explicit and implicit state machines: states,
+  invariants, transition table (`from → to`, every writer). Check what is reachable under retries,
+  duplicate or late events and concurrency (two tabs, webhook before redirect, crash between writes).
+- Make the bad state unrepresentable, in this order: a sum type / discriminated union in place of
+  flag + nullable combinations; a smart constructor or branded id for an invariant; one guarded
+  transition function every writer goes through; a runtime check only at the trust boundary.
+- Workflows, payments, auth: state the safety property ("never X after Y") and the liveness property
+  ("every pending reaches a terminal state"), and the interleaving that would break each.
+- Permissions, flags, plans, config: one partial order (lattice) with one comparison, not ad-hoc lists.
+- No new implicit state machines: no status booleans beside a status field, no second representation
+  beside the old one. Migrate the writers and delete the old fields in the same change. A deliberate
+  recovery state (pending row, tombstone, lease) names its exit, and the exit must be reachable.
+- Whole-repo audit: `qa STRUCTURE` (inventory ranked by impact; fix only high-impact rows).
 
 ## Repo hygiene, docs and testing — house rules
 

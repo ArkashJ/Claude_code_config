@@ -11,16 +11,6 @@
         "gitCommitSha": "09c434ab73ca43761c5d8b0c5d341926c2fba710"
       }
     ],
-    "aws-core@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/aws-core/1.1.0",
-        "version": "1.1.0",
-        "installedAt": "2026-09-18T14:11:21.580Z",
-        "lastUpdated": "2026-09-18T14:11:21.580Z",
-        "gitCommitSha": "7fcb1da17abba610d7becc973c2141b40412e02c"
-      }
-    ],
     "pr-review-toolkit@claude-plugins-official": [
       {
         "scope": "user",
@@ -70,16 +60,6 @@
         "gitCommitSha": "c447c3207a425bc4e2a0d068435f64b0477ae981"
       }
     ],
-    "vercel@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "/Users/arkashjain/.claude/plugins/cache/claude-plugins-official/vercel/0.50.0",
-        "version": "0.50.0",
-        "installedAt": "2026-09-22T23:38:03.266Z",
-        "lastUpdated": "2026-09-22T23:38:03.266Z",
-        "gitCommitSha": "882e66c2698689324c341b7bb8fd8beb92c27bf6"
-      }
-    ],
     "html-plan@claude-community": [
       {
         "scope": "user",
@@ -98,6 +78,16 @@
         "installedAt": "2026-10-28T02:21:03.510Z",
         "lastUpdated": "2026-10-28T02:21:03.510Z",
         "gitCommitSha": "f8c5e7a1dcb71b10cb74586224b5401f3de5db28"
+      }
+    ],
+    "untangle-codebase@caldo-skills": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/caldo-skills/untangle-codebase/f3cf47774975",
+        "version": "f3cf47774975",
+        "installedAt": "2026-11-08T22:47:11.600Z",
+        "lastUpdated": "2026-11-08T22:47:11.600Z",
+        "gitCommitSha": "f3cf47774975a7d9fca45730babf4ff7ad765ada"
       }
     ]
   }
