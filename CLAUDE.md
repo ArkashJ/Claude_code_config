@@ -76,18 +76,28 @@ delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a back
 
 ## Model state mathematically — invalid states unrepresentable
 
-- Before writing or changing stateful code, name its explicit and implicit state machines: states,
-  invariants, transition table (`from → to`, every writer). Check what is reachable under retries,
-  duplicate or late events and concurrency (two tabs, webhook before redirect, crash between writes).
+- **Triggers** (otherwise skip; a two-state toggle needs no table): adding or changing a status,
+  phase, flag or nullable field; a retry, timeout, webhook, queue or job handler; a permission,
+  role, plan or feature-flag check; money, auth or a multi-step workflow.
+- On a trigger, name the state machine first: states, invariants, transition table (`from → to`,
+  every writer), and what retries, duplicate or late events and concurrency can reach (two tabs,
+  webhook before redirect, crash between writes).
 - Make the bad state unrepresentable, in this order: a sum type / discriminated union in place of
   flag + nullable combinations; a smart constructor or branded id for an invariant; one guarded
   transition function every writer goes through; a runtime check only at the trust boundary.
-- Workflows, payments, auth: state the safety property ("never X after Y") and the liveness property
-  ("every pending reaches a terminal state"), and the interleaving that would break each.
-- Permissions, flags, plans, config: one partial order (lattice) with one comparison, not ad-hoc lists.
-- No new implicit state machines: no status booleans beside a status field, no second representation
-  beside the old one. Migrate the writers and delete the old fields in the same change. A deliberate
-  recovery state (pending row, tombstone, lease) names its exit, and the exit must be reachable.
+- Every branch over a union is exhaustive and machine-checked: TS `switch` with an `assertNever`
+  default (lint: `@typescript-eslint/switch-exhaustiveness-check`), Go the `exhaustive` linter,
+  Python `match` + `typing.assert_never` under mypy/pyright. Adding a state must break every
+  branch that forgot it.
+- Payments, auth, workflows: state the safety property ("never X after Y") and the liveness
+  property ("every pending reaches a terminal state"); the E2E test replays the interleaving that
+  would break it.
+- Permissions, flags, plans with 3+ levels: one partial order (lattice) with one comparison
+  function, never ad-hoc lists or string compares scattered across callers.
+- No new implicit state machines: no status booleans beside a status field, no second
+  representation beside the old one. Migrate the writers and delete the old fields in the same
+  change. A deliberate recovery state (pending row, tombstone, lease) names its exit, and the exit
+  must be reachable.
 - Whole-repo audit: `qa STRUCTURE` (inventory ranked by impact; fix only high-impact rows).
 
 ## Repo hygiene, docs and testing — house rules

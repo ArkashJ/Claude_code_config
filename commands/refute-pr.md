@@ -55,7 +55,12 @@ no PR title or body, no "the author says", no hints about what you think is wron
 >    MCP tool catalog must match their sources; hand-edited generated files.
 > 8. UX dirty-dialog state: dialogs/sheets/forms that lose input on dismiss, skip the unsaved guard, keep
 >    stale state after success or error, double-submit, or leave focus/scroll wrong.
-> 9. Anything else that breaks a caller you can find by grep.
+> 9. Reachable invalid state: a sequence of events (retry, duplicate or late webhook, two tabs, crash
+>    between writes) that reaches a combination the types allow but the code treats as impossible; a
+>    new status boolean or nullable beside an existing status (a second implicit state machine); a
+>    `switch`/`match` over a union without an exhaustive `never` default; a state write from a second
+>    place with no guard on the current value.
+> 10. Anything else that breaks a caller you can find by grep.
 >
 > Report format, nothing else: a ranked list, most severe first. Each finding has: severity
 > (blocker / major / minor), `path:line` at head, one sentence of what is wrong, a concrete failure
