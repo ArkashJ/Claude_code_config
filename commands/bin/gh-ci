@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# usage: gh-ci stale <owner/repo> [--cancel] | merge <owner/repo> <pr> <full-40-char-reviewed-sha> [timeout_s=7200] | --self-test
+# Spend less CI and never merge an unreviewed head.
+#   stale  lists queued/in-progress pull_request runs whose PR is closed/merged or whose head is no longer
+#          the PR head. --cancel force-cancels them (plain `gh run cancel` left 7 queued runs stuck,
+#          2026-11-14: CodeBuild-runner runs for 6 closed PRs sat queued 1-2 days until force-cancel).
+#   merge  waits until no check is pending, refuses on any failed check, then squash-merges ONLY if the
+#          PR head still equals <sha>. A short SHA is refused: on 2026-11-14 a merge job was launched with
+#          a 12-char SHA (`--match-head-commit` needs the full one) and had to be killed.
+# Run `merge` with run_in_background and act on the completion notification (never `sleep`).
+set -euo pipefail
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
+GH=${GH_CI_GH:-gh}
+INTERVAL=${GH_CI_INTERVAL:-30}
+
+stale() { # <repo> [--cancel]
+  local repo=$1 cancel=${2:-} runs n=0 id branch sha pr state head
+  runs=$($GH run list -R "$repo" --limit 200 --json databaseId,headBranch,headSha,status,event \
+    --jq '.[] | select(.event=="pull_request" and (.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="pending")) | "\(.databaseId) \(.headBranch) \(.headSha)"')
+  while read -r id branch sha; do
+    [ -n "${id:-}" ] || continue
+    read -r pr state head < <($GH pr list -R "$repo" --head "$branch" --state all --limit 1 \
+      --json number,state,headRefOid --jq '.[0] | "\(.number) \(.state) \(.headRefOid)"' || echo "- NONE -")
+    if [ "$state" != "OPEN" ] || [ "$head" != "$sha" ]; then
+      n=$((n + 1)); echo "STALE run=$id branch=$branch pr=#$pr state=$state run_sha=${sha:0:9} pr_head=${head:0:9}"
+      if [ "$cancel" = "--cancel" ]; then $GH api -X POST "repos/$repo/actions/runs/$id/force-cancel" >/dev/null && echo "  force-cancelled $id"; fi
+    fi
+  done <<<"$runs"
+  echo "stale=$n"
+}
+
+merge() { # <repo> <pr> <sha> [timeout]
+  local repo=$1 pr=$2 sha=$3 limit=${4:-7200} t0 pend fail head
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "refusing: reviewed sha must be the full 40-char commit, got '$sha' (use: gh pr view $pr -R $repo --json headRefOid --jq .headRefOid)" >&2; return 2; }
+  t0=$SECONDS
+  while :; do
+    pend=$($GH pr checks "$pr" -R "$repo" --json bucket --jq '[.[] | select(.bucket=="pending")] | length' || echo 1)
+    [ "$pend" = 0 ] && break
+    (( SECONDS - t0 > limit )) && { echo "PR $pr: $pend checks still pending after ${limit}s; not merging" >&2; return 124; }
+    command sleep "$INTERVAL"
+  done
+  fail=$($GH pr checks "$pr" -R "$repo" --json name,bucket --jq '[.[] | select(.bucket=="fail") | .name] | join(", ")')
+  [ -z "$fail" ] || { echo "PR $pr: failed checks: $fail; not merging (rerun only the failed job if it is a known flake: gh run rerun <id> --failed)" >&2; return 1; }
+  head=$($GH pr view "$pr" -R "$repo" --json headRefOid --jq .headRefOid)
+  [ "$head" = "$sha" ] || { echo "PR $pr: head moved to ${head:0:9}, reviewed ${sha:0:9}; review the new commits first" >&2; return 3; }
+  $GH pr merge "$pr" -R "$repo" --squash --delete-branch --match-head-commit "$sha"
+  $GH pr view "$pr" -R "$repo" --json state,mergeCommit --jq '"PR '"$pr"' \(.state) \(.mergeCommit.oid)"'
+}
+
+self_test() { # fake gh: one stale run (closed PR), one superseded run, one current run
+  local d; d=$(mktemp -d); trap 'rm -rf "$d"' RETURN
+  cat >"$d/gh" <<'FAKE'
+#!/usr/bin/env bash
+case "$*" in
+  "run list"*) printf '%s\n' "1 closed-br aaaa" "2 open-br bbbb" "3 open-br cccc" ;;
+  "pr list"*"closed-br"*) echo "10 CLOSED aaaa" ;;
+  "pr list"*"open-br"*) echo "11 OPEN cccc" ;;
+  "api -X POST"*) echo "$*" >>"$FAKE_LOG" ;;
+  "pr checks"*"bucket==\"pending\""*) echo 0 ;;
+  "pr checks"*) echo "" ;;
+  "pr view"*"headRefOid"*) echo "$FAKE_HEAD" ;;
+  "pr merge"*) echo "merged $*" >>"$FAKE_LOG" ;;
+  "pr view"*) echo "PR 5 MERGED x" ;;
+esac
+FAKE
+  chmod +x "$d/gh"; export FAKE_LOG="$d/log"; GH="$d/gh"; INTERVAL=0
+  local out full=0123456789abcdef0123456789abcdef01234567
+  out=$(stale o/r --cancel)
+  grep -q 'stale=2' <<<"$out" && grep -q 'run=1 ' <<<"$out" && grep -q 'run=2 ' <<<"$out" && ! grep -q 'run=3 ' <<<"$out" \
+    || { echo "FAIL stale: $out"; return 1; }
+  [ "$(grep -c force-cancel "$d/log")" = 2 ] || { echo "FAIL: expected 2 force-cancels"; return 1; }
+  merge o/r 5 0123456789ab >/dev/null 2>&1 && { echo "FAIL: short sha accepted"; return 1; }
+  FAKE_HEAD=ffff$full merge o/r 5 "$full" >/dev/null 2>&1 && { echo "FAIL: moved head merged"; return 1; }
+  FAKE_HEAD=$full merge o/r 5 "$full" >/dev/null || { echo "FAIL: clean merge refused"; return 1; }
+  grep -q "match-head-commit $full" "$d/log" || { echo "FAIL: merge not pinned"; return 1; }
+  echo "self-test PASS (stale detection, force-cancel, short-sha refusal, moved-head refusal, pinned merge)"
+}
+
+case "${1:-}" in
+  stale) shift; stale "$@" ;;
+  merge) shift; merge "$@" ;;
+  --self-test) self_test ;;
+  *) usage; exit 2 ;;
+esac
