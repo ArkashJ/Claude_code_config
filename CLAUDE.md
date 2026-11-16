@@ -98,7 +98,18 @@ delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a back
   representation beside the old one. Migrate the writers and delete the old fields in the same
   change. A deliberate recovery state (pending row, tombstone, lease) names its exit, and the exit
   must be reachable.
-- Whole-repo audit: `qa STRUCTURE` (inventory ranked by impact; fix only high-impact rows).
+- Composition (totals, rollups, merges, reducers) is associative and lossless: no result that
+  depends on arrival order, no last-write-wins that silently drops data.
+- Lifetimes (leases, locks, tokens, temp files, connections) have one owner, one release path and
+  an enforced expiry. Environment assumptions (timezone, single instance, proxy trust, required
+  config, a server that must reload) fail fast at boot or deploy, never by convention.
+- Whole-repo audit: `qa STRUCTURE` (inventory ranked by impact; fix only high-impact rows). Cover
+  state machines, products that should be sums, conventional invariants, temporal properties,
+  lattices, lossy/order-dependent composition, lifetimes and environment assumptions. Each row:
+  location, implicit form, explicit model, risk evidence as a concrete interleaving, and the
+  smallest change that makes the bad case unrepresentable (types/constructors over runtime
+  checks); flag deliberate recovery states. Run it before a release that touches money, auth,
+  roles or deploy.
 
 ## Repo hygiene, docs and testing — house rules
 
