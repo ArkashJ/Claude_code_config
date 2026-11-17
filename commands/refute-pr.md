@@ -63,14 +63,14 @@ no PR title or body, no "the author says", no hints about what you think is wron
 > 10. Anything else that breaks a caller you can find by grep.
 >
 > Report format, nothing else: a ranked list, most severe first. Each finding has: severity
-> (blocker / major / minor), `path:line` at head, one sentence of what is wrong, a concrete failure
+> (Important / Nit / Pre-existing: not the author's to fix), `path:line` at head, one sentence of what is wrong, a concrete failure
 > scenario (who does what, what they see or what is lost), and the command or lines that prove it.
 > Then a "lenses with no finding" section, one line each. No praise, no summary of the change, no
 > reasoning transcript. If you cannot find a real defect in a lens, say so; never pad with style nits.
 
 ## 3. Triage (you)
 
-The reviewer's output is a claim, not a fact. For every blocker and major finding, open the cited
+The reviewer's output is a claim, not a fact. For every Important finding, open the cited
 `path:line` at head and confirm it (grep the symbol, run the command it names). Mark each CONFIRMED,
 REFUTED (say why) or UNVERIFIED. Do not relay an unconfirmed finding as real.
 
