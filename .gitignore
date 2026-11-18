@@ -38,3 +38,19 @@ settings.local.json
 /plugins/plugin-directory-cache-v2.json
 # impeccable ships a 16MB per-platform binary; its launcher falls back to ~/.impeccable/bin.
 /skills/impeccable/scripts/bin/
+
+# Installed by Automated_QA/install.sh as symlinks into that repo; it owns them.
+/skills/.trash/
+/skills/harvest
+/skills/ui-stress
+/skills/frontend-verify
+/commands/backend-edges.md
+/commands/checkpoint.md
+/commands/featuredev.md
+/commands/map.md
+/commands/mission.md
+/commands/review-queue.md
+/commands/start.md
+/commands/structure.md
+/commands/ui-hunt.md
+/commands/wrap.md
