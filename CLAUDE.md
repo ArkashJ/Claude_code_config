@@ -79,10 +79,11 @@ delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a back
 ## Model state mathematically — invalid states unrepresentable
 
 - **Triggers** (otherwise skip; a two-state toggle needs no table): adding or changing a status,
-  phase, flag or nullable field; a retry, timeout, webhook, queue or job handler; a permission,
+  phase, step or flag, or a nullable field that only makes sense in some states; async view state
+  (loading, error, stale, optimistic); a multi-step form or wizard; a retry, timeout, webhook, queue or job handler; a permission,
   role, plan or feature-flag check; money, auth or a multi-step workflow.
-- On a trigger, name the state machine first: states, invariants, transition table (`from → to`,
-  every writer), and what retries, duplicate or late events and concurrency can reach (two tabs,
+- On a trigger, name the state machine first: states, invariants, transition table (`from → event →
+  to`, guard, every writer), and what retries, duplicate or late events and concurrency can reach (two tabs,
   webhook before redirect, crash between writes).
 - Make the bad state unrepresentable, in this order: a sum type / discriminated union in place of
   flag + nullable combinations; a smart constructor or branded id for an invariant; one guarded
@@ -91,6 +92,18 @@ delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a back
   default (lint: `@typescript-eslint/switch-exhaustiveness-check`), Go the `exhaustive` linter,
   Python `match` + `typing.assert_never` under mypy/pyright. Adding a state must break every
   branch that forgot it.
+- **Frontend is a state machine too.** Async view state (loading / error / success / empty / stale /
+  cancelled / optimistic) is one union per view, never independent booleans. Navigation, unmount,
+  bfcache restore, tab visibility, refetch and a late response to a superseded request are events
+  in the table. A submit is disabled or idempotent from click to settle; every async effect whose
+  result writes state is cancelled or ignored after unmount or dependency change.
+- **A finding needs an interleaving**, with file:line per step; theoretical reachability is not a
+  finding. Claim an invariant only by pointing at the code that maintains it.
+- **Smallest durable change.** A local type or constructor change; the explicit version has fewer
+  flags and less duplicated logic than the implicit one it replaces. A fix that would touch
+  serialization, persistence or many call sites is deferred and listed unless the bad state loses
+  data, money or access; then the smallest constructor change that kills it. A bad state the type checker now rejects needs no test; otherwise a
+  journey step replays the interleaving.
 - Payments, auth, workflows: state the safety property ("never X after Y") and the liveness
   property ("every pending reaches a terminal state"); the E2E test replays the interleaving that
   would break it.
@@ -102,10 +115,13 @@ delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a back
   must be reachable.
 - Composition (totals, rollups, merges, reducers) is associative and lossless: no result that
   depends on arrival order, no last-write-wins that silently drops data.
-- Lifetimes (leases, locks, tokens, temp files, connections) have one owner, one release path and
+- Lifetimes (leases, locks, tokens, temp files, connections, timers, subscriptions, listeners) have one owner, one release path and
   an enforced expiry. Environment assumptions (timezone, single instance, proxy trust, required
   config, a server that must reload) fail fast at boot or deploy, never by convention.
-- Whole-repo audit: `qa STRUCTURE` (inventory ranked by impact; fix only high-impact rows). Cover
+- Whole-repo audit: `/structure` = `qa STRUCTURE` (`structure.py` counts sites per class first;
+  inventory ranked by impact; fix only high-impact rows). The repo copy of these rules
+  (`## State and invalid-state rules`, for a repo's CLAUDE.md/AGENTS.md) is
+  `~/.claude/skills/qa/state-rules.md`; change it in the same commit as this section. Cover
   state machines, products that should be sums, conventional invariants, temporal properties,
   lattices, lossy/order-dependent composition, lifetimes and environment assumptions. Each row:
   location, implicit form, explicit model, risk evidence as a concrete interleaving, and the

@@ -20,6 +20,16 @@ and unmeasured evidence into step 9's "Not done".
 - Run the repo's local gates once per tree: `once <test|lint|typecheck|verify cmd>`. Paste the
   output into the PR. Hosted CI is not a gate: do not wait on it, poll it or re-run it.
 - One push per branch, at the end. The draft PR exists and its description is current.
+- **Test shape.** `git diff --name-only --diff-filter=A <start>..HEAD` lists no new unit,
+  integration, property or one-feature test file: fold each into an existing E2E journey as steps,
+  or delete it. Existing small tests stay unless the user authorized removal.
+- **Verified.** The repo's `verify` skill (`.claude/skills/verify/`) ran on the final tree, and each
+  commit carries `Verified: <how>` or `Verified: none (<why>)`. A repo with no verify skill gets one
+  this wrap (how to boot, drive and inspect it, proved by one run), or an issue saying why not.
+- **No self-judging.** The diff does not weaken or delete an existing assertion, journey step, gate
+  or REVIEW.md rule that judges this change (adding steps is fine); if it must, the PR says why and
+  the human approves it. A step still failing after three fix attempts, or a flaky one, goes to "Not done" with its failing step. Never skip,
+  sleep or retry it into green.
 
 ## 2. Dynamic QA gate: run what changed, in the browser and the suite
 

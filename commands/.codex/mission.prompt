@@ -8,7 +8,9 @@ commits (`git cat-file -e <sha>`), branches (`git ls-remote --heads origin <name
 (`gh issue view <n>`), test counts, file paths. A handed-in plan goes stale and can even belong to
 another repo. Report what failed to resolve and adapt before phase 1. If the mission rests on a
 corpus (client docs, CSVs, specs), the /start depth rule applies: "read N of N files" before the
-phase plan is written.
+phase plan is written. If the mission touches a CLAUDE.md state trigger (status, flags, wizard,
+async view state, retry/webhook/queue, roles, money), phase 1 is `/structure` scoped to the touched
+modules: the inventory and its high-impact rows shape the phase plan.
 
 ## Autonomy rules — these are what make hours-long unattended work safe
 
@@ -33,7 +35,8 @@ phase plan is written.
    local gates are the evidence, and a merge blocked only on hosted CI goes through `--admin` once
    the human approves it.
 7. **Adversarial pass before the final wrap.** Run a cold adversarial reviewer (opus, never shown the
-   author's reasoning, prompted to refute) over the run's output. Fix what it finds, then do the
+   author's reasoning, prompted to refute) over the run's output, `/refute-pr`'s reachable-invalid-state
+   lens included. Fix what it finds, then do the
    final wrap.
 
 ## Wrap — a short one every phase, the full /wrap at the end
