@@ -9,7 +9,7 @@ recovery behavior. Avoid copying credentials or unrelated application records.
 | Missing command | `benmore version --json`, `benmore help`; framework and cloud editions differ |
 | Wrong app or URL | `.benmore/app`, `benmore whoami`, `benmore use`, explicit `--env` |
 | Sync rejection | `benmore sync-status . --json`; compare local, remote, and saved base |
-| Validation rejection | Read the complete filename/key error and relevant `api` topic |
+| Validation rejection | Read the complete filename/key error, then the key its `docs:` line names: `benmore api <app> <topic.key>` |
 | Upload succeeded, behavior unchanged | Server logs/reload error, deployed manifest, route response |
 | HTML loads but UI fails | Real browser console/network and `benmore errors <app>` |
 | Flow appears successful but did nothing | Actual response shape, loop input, rows affected, asserted expected count |
@@ -17,11 +17,16 @@ recovery behavior. Avoid copying credentials or unrelated application records.
 | No email/SMS | Provider/host capability, quota or suppression, recipient and guarded flow result |
 | Missing assets or routes | `static/` path, compiled TSX import graph, URL and returned content type |
 
+A refused write, a `benmore check` finding and many runtime errors name where
+their rule is written: a line such as `docs: api(at:"flows.step_keys")` under the
+message, or a `docs` field in a JSON answer. Read that key before changing the
+file again; see `api(at:"errors.docs_field")`.
+
 ## Malformed configuration and failed reloads
 
-Since framework/platform 2.7.224, malformed core application, backup, hook, flow,
-cron, workflow, and encryption settings reject startup or reload instead of being
-silently ignored. Read `recovery.configuration_loading` and the relevant topic.
+Malformed core application, backup, hook, flow, cron, workflow, and encryption
+settings reject startup or reload. Read `recovery.configuration_loading` and the
+relevant topic.
 Missing optional files and invalid existing files are distinct cases.
 
 A rejected reload retains the previous handler/configuration/workers. It does not

@@ -1,31 +1,42 @@
-# Find the supported command or recipe
+# Find the supported command
 
-Run `benmore help` for the installed edition. `benmore api --help` is local and
-shows selector/call syntax. The current server's `api` recipes and MCP tool schemas
-are authoritative for remote capabilities; the installed binary's help is
-authoritative for local CLI syntax.
+`benmore help` lists the common workflows; `benmore help all` lists every command
+with its effect; `benmore help <command>` prints one command's syntax. The
+installed binary's help is authoritative for local CLI syntax; the deployed app's
+`benmore api <app> <topic>` and MCP tool schemas are authoritative for server
+behavior.
 
-| Concern | Entry points |
-| --- | --- |
-| Identity and workspace | `login`, `signup`, `whoami`, `bootstrap`, `sync`, `pull`, `use` |
-| Agent support | `skill install --agent codex`, `skill install --agent claude`, `hooks status`, `docs harness` |
-| Discover app contracts | `api <app> '*'`, `api <app> <topic>`, `describe <app> <kind>`, `tool` |
-| Source iteration | `push`, `delete-file`, `sync-status`, `types` |
-| App lifecycle | `new`, `deploy`, `apps`, `open`, `disable`, `enable` |
-| Verify and release | `check`, `verify`, `ship`, `status`, `diff`, `doctor`, `promote`, `publish` |
-| Runtime diagnosis | `probe`, `errors`, `logs`, `tail`, `requests`, `audit`, `health` |
-| Source history | `git log`, `git show`, `git revert`, `github` |
-| Data and recovery | `sql`, `import`, `integrity-check`, `restore` |
-| Reuse and integration | `feature`, `clone`, `env`, `upload`, `media`, `domain` |
-| Hosted services | `email`, `email-domain`, `sms`, `payments`, `dns` |
-| Usage and privacy | `usage --local`, `usage sync`, `telemetry` |
+Effect labels: **inspect** reads only; **change** writes source, data or settings
+of one instance (`--env`, else the `benmore use` pin, else dev when the app has
+one, else prod);
+**promote** writes production; **account** changes the app or account itself.
+push, deploy, delete-file, `sql --write` and promote print a `target:` line on
+stderr first (the save hook only when its push lands in prod); other changing
+commands do not, so pass `--env` explicitly. `--env` takes `dev` or `prod`
+(`benmore env` also `shared`); any other value stops the command (exit 2)
+before anything is sent.
 
-This map is a starting point, not an assertion that every command is read-only or
-available in every edition. `tool` passes arguments to an MCP tool; it does not
-bypass its access checks. Prefer its `--args-json` form for nested data instead of
-inventing shell quoting for structured values.
+| Concern | Commands | Effect |
+| --- | --- | --- |
+| Identity and workspace | `login`, `whoami`, `use`, `apps`, `bootstrap`, `sync`, `pull` | account / local (`login` signs in; `whoami`, `apps` inspect; `use`, `sync`, `pull` write local files only; `bootstrap` signs in and writes local files) |
+| Agent support | `skill install --agent codex\|claude\|all`, `hooks status`, `docs <topic>` | local |
+| Discover contracts | `api <app> '*'`, `api <app> <topic>`, `describe <app> <kind>`, `tool <name>` | inspect (`api --call` and `tool` can change) |
+| Source iteration | `push`, `delete-file`, `deploy`, `types`, `sync-status` | change (dev if the app has one, else prod) / inspect |
+| Verify | `check`, `verify`, `qa draft`, `probe`, `status`, `diff`, `doctor` | inspect (`probe` runs the route) |
+| Release | `promote`, `ship --promote`, `publish`, `unpublish`, `seed-dev`, `refresh-dev` | promote / change |
+| Runtime diagnosis | `logs`, `tail`, `errors`, `decode`, `requests`, `audit`, `health` (row counts, sessions, database size against its storage limit), `integrity-check` | inspect |
+| Data and recovery | `sql` (`--write --confirm` changes), `import`, `restore`, `reset-seed`, `users` (`list`, `create`, `set-password`, `deactivate`, `reactivate`, `delete`) | change |
+| Source history | `git log\|show\|revert`, `github` | inspect / change |
+| Settings and services | `env`, `domain`, `email`, `email-domain`, `sms`, `payments`, `dns`, `mcp status\|enable\|disable` | change |
+| App and account | `create-app`, `delete`, `disable`, `enable`, `remove-production`, `restart`, `collaborators`, `transfer-ownership` | account |
+| Reuse | `feature`, `clone`, `upload`, `media` | change |
+| Plan, usage and privacy | `billing`, `usage --local`, `usage sync`, `telemetry` | inspect (`billing`: the account's plan, published apps and seats used / allowed, storage limits) / local / account |
 
-There is no `init-workspace` command. Use `bootstrap`, `skill`, and the generated
-per-app `AGENTS.md`. Do not use old manuals advertising local `context`, `add`, or
-`screenshot` workflows. For hosted UI checks, discover `browser_check`; for source
-and contract checks, use `api`, `check`, and `verify`.
+`tool` passes arguments to an MCP tool and keeps its access checks; prefer its
+`--args-json` form for nested data. Exit codes: 0 ok, 1 failure, 2 usage, 3
+domain failure, 4 authentication, 5 not found; `sync-status` uses 0 clean, 1
+drift, 2 conflict, 3 setup/auth/remote error (`api(at:"cli-contracts")`).
+
+There is no `init-workspace`, local `context`, `add` or `screenshot` command. For
+hosted UI checks use `browser_check`; for source and contract checks use `api`,
+`check` and `verify`.
