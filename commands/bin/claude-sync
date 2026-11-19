@@ -125,6 +125,10 @@ fi
 # One real copy per skill, the other agent links to it (see link-skills.sh for the incident).
 sh "$CFG/commands/bin/link-skills.sh" || echo "claude-sync: link-skills failed (skills may be duplicated)" >&2
 
+# --- regenerate the state-rules block in the global agent manuals from its one source
+[ ! -f "$CFG/skills/qa/state_rules.py" ] || python3 -I "$CFG/skills/qa/state_rules.py" apply --global >/dev/null ||
+  echo "claude-sync: state_rules.py apply failed (global manuals may be stale)" >&2
+
 # --- push ~/.claude
 
 # Take the other machines' changes first so the push is never rejected.
