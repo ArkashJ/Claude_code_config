@@ -14,9 +14,8 @@ A `WHERE outcome = X` drops the complement as silently as `| head`: count both s
   before writing. A plan written from a sample gets rewritten after the user demands depth.
 - **Depth gates the plan, not the fixes.** A defect confirmed with file:line or a failing spec goes
   to a fixer lane that hour; a validation lane fixes in-lane when the fix is local to its files.
-  Never hold confirmed defects until every lane reports (Measured 11-08: defects confirmed 03:50,
-  first fixer 05:42, user: "WHAT WERE YOU DOING FOR ALL THESE HOURS"). Ask for the merge grant
-  with the plan, not after the PRs pile up.
+  Never hold confirmed defects until every lane reports. Ask for the merge grant with the plan,
+  not after the PRs pile up.
 - **Find the oracle.** Ask what already exists upstream (the client's own engine, ledger, report,
   answer key) and make it the acceptance test. Port it; don't reinvent it. A migration or rewrite
   is checked differentially: old and new run on the same random or production-sampled inputs,
@@ -27,6 +26,9 @@ A `WHERE outcome = X` drops the complement as silently as `| head`: count both s
 - **Agent output is a claim, not a fact.** Spot-check every load-bearing claim at source before
   relaying it: recompute the arithmetic, grep the symbol, open the row. A lane's work exists only
   when its commits are reachable from the branch and its worktree is clean.
+- **A lane report's "behaviour changes" list is a regression list.** Restore each item or get it accepted
+  by name; never relay it as a feature (a dropped autocomplete on a password field or a removed
+  permission gate is a regression, however the lane labels it).
 - **Adversarial review on every artifact before shipping:** a cold reviewer (opus) that never sees
   the author's reasoning, prompted to refute. Expect 20–30 findings on a big rewrite.
 - **Prod evidence over code reading.** Measure behavior from logs, CI or build history (counts per
@@ -42,23 +44,25 @@ A `WHERE outcome = X` drops the complement as silently as `| head`: count both s
 Subagents run in the foreground. Each brief carries the shell rules below, ONE output path, and the
 exact proof command. One worktree per writing agent; no file-set overlap between lanes.
 Briefs say: "never end your turn while your own background job runs; write your output doc as you
-go" (Measured 11-08: a reviewer parked on its own job, reported 66 min late, doc half-written).
+go".
 Remove a lane's worktree the moment its PR merges: a leftover checkout locks the branch for the
 next lane. Prod reads a subagent needs go through the integrator, whose grant covers them.
 
+<!-- claude-only:begin (stripped from the generated ~/.codex/AGENTS.md) -->
 ## Never `sleep` to wait
 
 `sleep N`, sleep-then-poll and `sleep` inside compound commands are blocked by
 `~/.claude/hooks/guard-bash.sh` (self-test `guard-bash.test.sh`; enforced only while it passes). Use `Monitor` with an until-loop or
 `run_in_background` on the FIRST attempt. An inner `timeout 900` longer than the Bash tool's cap is
 decorative: pass `timeout:` on the call itself, or background it.
+<!-- claude-only:end -->
 
 ## One command, one absolute path — never `cd &&` chains
 
 The harness resets cwd between calls and the guard rejects `cd X && cmd` and `; cd X`. Use absolute
 paths, `git -C`, `bun --cwd`. `rm` targets are literal paths or `"${VAR:?}"`. **A loop that reports
-success without a count is not verified:** print the count and sanity-check it (`2>/dev/null` has
-hidden 121 empty files in a 122-file batch).
+success without a count is not verified:** print the count and sanity-check it (`2>/dev/null` can
+hide 121 empty files in a 122-file batch).
 **Scripted text replaces anchor on the target's own unique name** (e.g. `_tool("name",`, never a shared marker
 like `description=`) and assert the match count before writing (`assert s.count(old) == 1`). Quote heredoc
 delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a backtick).
@@ -174,8 +178,7 @@ Stop after the high-impact rows.
   nothing, skip it. After a change run only the journeys/steps that touch it (runner filter by
   journey or tag), once, on the final code. Never re-run to "confirm", never run the full roster on
   a loaded laptop (load > cores fails for host reasons), never two suites on one DB. The full set
-  runs once per release candidate on the release pipeline/CI. Owner, 2026-11-16: "Why are we
-  constantly wasting time on end to end tests again and again… just finish the code".
+  runs once per release candidate on the release pipeline/CI. Finishing the code beats re-running tests.
 - **Verification means running the change.** Each repo keeps a fast, reliable `verify` skill
   (`.claude/skills/verify/`, near the code) that boots, drives and inspects the app (browser via
   `pw`, simulator, API harness, CLI). Run it once on the tree you commit (`once` replays a PASS);
@@ -202,6 +205,7 @@ Stop after the high-impact rows.
 - **Better code over more code.** Reuse an existing helper before writing one; extract a shared one
   when the second copy appears; delete dead code you touch.
 
+<!-- claude-only:begin -->
 ## Code intelligence (LSP)
 
 For TypeScript/JavaScript, Go and Python, prefer the `LSP` tool over grep for definitions,
@@ -222,4 +226,7 @@ to grep only when LSP returns nothing useful.
   The state rules above are generated; edit `~/.claude/skills/qa/state-rules.md`, then
   `python3 ~/.claude/skills/qa/state_rules.py apply --global` (claude-sync does this on push).
 - Session commands: `/start` (open a session), `/wrap` (close a session; pair with `harvest`) and
-  `/mission` (long autonomous runs, with its own per-phase wrap). Codex mirrors all three via `~/.claude/commands/.codex/sync.sh`.
+  `/mission` (long autonomous runs, with its own per-phase wrap), `/refute-pr` (cold adversarial PR review).
+  `~/.claude/commands/.codex/sync.sh` mirrors those four to Codex and generates `~/.codex/AGENTS.md`
+  from this file (minus the claude-only blocks) plus `commands/.codex/AGENTS.codex-extra`.
+<!-- claude-only:end -->

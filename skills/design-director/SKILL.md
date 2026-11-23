@@ -517,6 +517,11 @@ Stop and reroute if you catch yourself doing any of these:
 - Inventing a new color, radius, or shadow per screen instead of extending the
   contract and reusing its tokens.
 - Asking the user to supply design vocabulary.
+- Picking a control by position (`buttons[1]`) in shared UI code; tag it by role (`data-savebar="save"`).
+  A reordered save bar otherwise leaves Save disabled after every edit.
+- Hiding a resting popover/tooltip with `visibility:hidden`/`opacity:0` only: it still widens
+  `scrollWidth`. Use `display:none` at rest and assert `scrollWidth - innerWidth === 0` on every
+  route in the sweep.
 - Saying only "make it premium / clean / modern" without a concrete art
   direction or contract tokens.
 - Running all `impeccable` commands.

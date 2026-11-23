@@ -21,6 +21,8 @@ allowed-tools: Bash(playwright-cli:*) Bash(pw:*) Bash(npx:*) Bash(npm:*) Bash(vc
   In `run-code`, call `page.setDefaultTimeout(5000)` first. `run-code` is sandboxed, so it has no `require` or `process`.
   `eval` takes ONE expression.
 - **Screenshot only on failure or at a named checkpoint, and Read it right away.** 50% of screenshots were never opened.
+- **Multi-line `run-code` goes in a file:** `pw run-code --filename=/abs/path.js`. Inline scripts with
+  `$$`, quotes and template strings get refused by the shell safety check; the same script from a file runs. A floating tooltip clones its bubble (`.ds-tooltip__float`), so check the clone.
 - **Close your own session** (`pw close`) when done. Opens outnumbered closes 385 to 217. `close-all`/`kill-all`
   close every agent's browser on the machine, and the hook blocks them.
 - Tests the user keeps are E2E specs bound to user stories (see the qa skill, STORIES). An exploratory

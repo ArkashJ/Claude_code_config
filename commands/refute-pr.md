@@ -18,7 +18,7 @@ anchors a reviewer toward "it works".
    `git diff origin/<base>...<headRefOid> > /tmp/refute-pr-<N>.diff` and compare against `gh pr diff <N>`
    (line counts must match; if they differ, the base moved - use the gh diff and say so).
    Also write `git diff --stat origin/<base>...<headRefOid>` next to it.
-5. In a Profectus checkout, also run `scripts/check-pr-regen-drift.sh <N>` and keep its one-line verdict
+5. If the repo has `scripts/check-pr-regen-drift.sh`, also run it with `<N>` and keep its one-line verdict
    for step 3 (do not pass your reading of it to the reviewer).
 6. State the untruncated size: "diff is N lines across M files". If it is over ~3000 lines, split the
    file list into groups of related files and launch one reviewer per group in parallel.

@@ -54,7 +54,7 @@ fi
 # Session afac82d1 (2026-09-27): a sub-agent meant to close its own sessions ran
 # `playwright-cli close-all`, which closes EVERY playwright-cli session on the machine,
 # including other lanes' logged-in browsers. Name the session instead.
-# 2026-10-02 (Profectus launch train): a backgrounded compound command ran
+# Incident: a backgrounded compound command ran
 # `make -C $I verify.sg; ...; ./scripts/check-tracked-artifacts.sh; ./scripts/check-evidence-policy.sh`
 # — every other step named the worktree, the two relative ones ran from the
 # harness cwd (apps/api) and exited 127 "No such file", which the log then

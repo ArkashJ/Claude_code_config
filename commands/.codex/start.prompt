@@ -38,7 +38,9 @@ List the installed skills that fit and say when you will use them: frontend or "
 `qa` (STORIES, HUNT, REVIEW, MEASURE) and `playwright-cli` via `pw`; UI look/states/copy →
 `impeccable`, `ui-stress`, `design-director`; a status, flag, wizard, async view state, retry,
 webhook, role or money flow (CLAUDE.md state triggers) → name the machine first, and `/structure`
-for a whole module or repo (it also lands `~/.claude/skills/qa/state-rules.md` in the repo's CLAUDE.md/AGENTS.md); session mistakes → `harvest`; anything over ~an hour
+for a whole module or repo (a `state-rules (observe):` line at session start means this repo's CLAUDE.md/AGENTS.md lacks the
+current rules: run `python3 ~/.claude/skills/qa/state_rules.py apply <repo>` and commit it on the
+working branch with the first change); session mistakes → `harvest`; anything over ~an hour
 or "overnight" → `/mission`, not a plan handed back; closing → `/wrap`. If a listed skill does not fit, say why.
 
 ## 3. Isolate, commit, push, checkpoint — continuously, without being asked

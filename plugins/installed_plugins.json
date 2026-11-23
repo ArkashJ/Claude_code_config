@@ -89,6 +89,17 @@
         "lastUpdated": "2026-11-08T22:47:11.600Z",
         "gitCommitSha": "f3cf47774975a7d9fca45730babf4ff7ad765ada"
       }
+    ],
+    "stripe@anthropic-plugin-directory": [
+      {
+        "scope": "user",
+        "installPath": "/Users/arkashjain/.claude/plugins/cache/anthropic-plugin-directory/stripe/0.13.0-72e7e79e08e2",
+        "version": "0.13.0-72e7e79e08e2",
+        "installedAt": "2026-11-20T15:13:46.791Z",
+        "lastUpdated": "2026-11-20T15:13:46.791Z",
+        "gitCommitSha": "72e7e79e08e245063e87d61f60340e55e54c68f4",
+        "directoryRepositoryKey": "github.com/stripe/ai#providers/claude/plugin"
+      }
     ]
   }
 }
