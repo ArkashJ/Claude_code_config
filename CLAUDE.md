@@ -154,6 +154,18 @@ Stop after the high-impact rows.
 
 - **Worktrees are disposable.** Remove yours as soon as its work is merged or abandoned
   (`git worktree remove`, then delete the branch). `wt-clean` runs at session start.
+- **Machine scratch is disposable too.** Scratch goes in `$TMPDIR` or `/tmp/<session-tag>-*` and is
+  deleted at wrap. A cleanup sweep (at `/wrap`, or when asked) covers /tmp, `$TMPDIR`, tool caches
+  (Go, uv, pip, npm, brew), Docker volumes, the Colima disk, stale clones and unused runtimes or apps.
+  Survey first (`du` plus counts per class), then delete in this order of safety:
+  regenerable caches by file age (`find <dir> -type f -mmin +360 -delete`), never the live root;
+  skip anything touched under 6h, holding an open file (`lsof`) or backing a running container, since
+  it belongs to a parallel session; a dirty checkout stays, a clone with unlanded commits is first
+  fetched into its canonical repo as `refs/rescue/<name>`; Docker prunes only volumes no container
+  uses, and Colima shrinks via `colima ssh -- sudo fstrim -a`, never a restart under live containers.
+  Installed software (runtimes, brew formulae, conda, apps) is checked with `brew uses --installed`
+  and the last-used date, then offered in ONE batched multi-select question. Remote branch deletes
+  and sudo removals go to the user as a ready `!` command.
 - **Few markdown files.** No new plans, handoffs, reports or summaries in repos: use the PR, the
   commit, the master issue or an existing doc. One owner doc per domain; README + a handful of
   owner docs is the target. Delete or merge stale, duplicated or dated docs.

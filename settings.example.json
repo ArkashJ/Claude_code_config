@@ -1,6 +1,49 @@
 {
+  "cleanupPeriodDays": 7,
+  "env": {
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-5-5",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5-5",
+    "CLAUDE_AUTO_BACKGROUND_TASKS": "1",
+    "CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL": "1",
+    "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1"
+  },
   "permissions": {
-    "allow": [],
+    "allow": [
+      "Bash(benmore push *)",
+      "Bash(benmore deploy *)",
+      "Bash(benmore pull *)",
+      "Bash(benmore restart *)",
+      "Bash(benmore sync-status *)",
+      "Bash(benmore describe *)",
+      "Bash(benmore logs *)",
+      "Bash(benmore probe *)",
+      "Bash(benmore health *)",
+      "Bash(benmore status *)",
+      "Bash(benmore whoami*)",
+      "Bash(benmore apps*)",
+      "Bash(benmore sql *)",
+      "Bash(git push *)",
+      "Bash(git -C * push *)",
+      "Bash(git -c * push *)",
+      "Bash(gh pr *)",
+      "Bash(gh issue *)",
+      "Bash(gh run *)",
+      "Bash(gh repo view *)",
+      "Bash(AWS_PROFILE=noble terraform *)",
+      "Bash(AWS_PROFILE=noble make prod-manage *)",
+      "Bash(AWS_PROFILE=noble AWS_MANAGE_YES=1 */bin/aws-manage.sh *)",
+      "Bash(gh issue edit 753 *)"
+    ],
+    "deny": [
+      "Bash(AWS_PROFILE=noble terraform destroy*)",
+      "Bash(terraform destroy*)"
+    ],
+    "ask": [
+      "Bash(benmore sql * --write*)",
+      "Bash(benmore sql --write*)"
+    ],
     "defaultMode": "auto"
   },
   "model": "opus",
@@ -11,6 +54,33 @@
           {
             "type": "command",
             "command": "(~/.claude/commands/bin/claude-sync pull >/dev/null 2>&1 &) ; true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "(mkdir -p ~/.claude/logs; ~/.local/bin/wt-clean --throttle >> ~/.claude/logs/wt-clean.log 2>&1 &) ; true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f '~/.claude/skills/impeccable/scripts/impeccable' ] || '~/.claude/skills/impeccable/scripts/impeccable' hook",
+            "timeout": 5,
+            "statusMessage": "Preparing build session"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f ~/.claude/skills/qa/state_rules.py ] || python3 -I ~/.claude/skills/qa/state_rules.py check --global \"${CLAUDE_PROJECT_DIR:-.}\" 2>&1 | grep -v -e '^ok ' -e '^skip ' | sed 's/^/state-rules (observe): /'; true",
+            "timeout": 10
           }
         ]
       }
@@ -25,6 +95,31 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f '~/.claude/skills/impeccable/scripts/impeccable' ] || '~/.claude/skills/impeccable/scripts/impeccable' hook",
+            "timeout": 5,
+            "statusMessage": "Checking UI changes"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f '~/.claude/skills/impeccable/scripts/impeccable' ] || ! git -C \"${CLAUDE_PROJECT_DIR:-.}\" status --porcelain 2>/dev/null | grep -qE '\\.(tsx|jsx|vue|svelte|astro|css|scss|less|html)$' || '~/.claude/skills/impeccable/scripts/impeccable' hook",
+            "timeout": 30,
+            "statusMessage": "Design deep pass"
+          }
+        ]
+      }
     ]
   },
   "worktree": {
@@ -33,12 +128,14 @@
   "enableArtifact": false,
   "enabledPlugins": {
     "ponytail@ponytail": true,
-    "aws-core@claude-plugins-official": true,
     "pr-review-toolkit@claude-plugins-official": true,
     "typesafe@typesafe-ai": true,
     "gopls-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
-    "vercel@claude-plugins-official": true
+    "html-plan@claude-community": true,
+    "jdtls-lsp@claude-plugins-official": true,
+    "untangle-codebase@caldo-skills": true,
+    "stripe@anthropic-plugin-directory": true
   },
   "extraKnownMarketplaces": {
     "ponytail": {
@@ -58,8 +155,21 @@
         "source": "github",
         "repo": "anthropics/claude-plugins-official"
       }
+    },
+    "claude-community": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-community"
+      }
+    },
+    "caldo-skills": {
+      "source": {
+        "source": "github",
+        "repo": "caldoai/skills"
+      }
     }
   },
+  "outputStyle": "Proactive",
   "modelSettings": {
     "claude-fable-5-1": {
       "effortLevel": "medium"
@@ -68,6 +178,13 @@
       "effortLevel": "high"
     },
     "claude-opus-5-5": {
+      "effortLevel": "medium",
+      "autoCompactWindow": 600000
+    },
+    "claude-sonnet-5-5": {
+      "effortLevel": "high"
+    },
+    "claude-fable-5-2": {
       "effortLevel": "medium"
     }
   },
@@ -84,5 +201,6 @@
   "crossSessionInbound": "accept",
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "description": "Impeccable design detector: immediate-tier checks after Edit/Write on UI files, full-rule deep pass on Stop."
 }
