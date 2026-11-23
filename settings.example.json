@@ -132,9 +132,9 @@
     "typesafe@typesafe-ai": true,
     "gopls-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
-    "html-plan@claude-community": true,
+    "html-plan@claude-community": false,
     "jdtls-lsp@claude-plugins-official": true,
-    "untangle-codebase@caldo-skills": true,
+    "untangle-codebase@caldo-skills": false,
     "stripe@anthropic-plugin-directory": true
   },
   "extraKnownMarketplaces": {
@@ -202,5 +202,13 @@
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "voiceEnabled": true,
-  "description": "Impeccable design detector: immediate-tier checks after Edit/Write on UI files, full-rule deep pass on Stop."
+  "description": "Impeccable design detector: immediate-tier checks after Edit/Write on UI files, full-rule deep pass on Stop.",
+  "skillOverrides": {
+    "connect-recommend": "off",
+    "stripe-best-practices": "off",
+    "stripe-docs": "off",
+    "find-skills": "off",
+    "playwright-best-practices": "off",
+    "frontend-verify": "off"
+  }
 }

@@ -67,6 +67,13 @@ hide 121 empty files in a 122-file batch).
 like `description=`) and assert the match count before writing (`assert s.count(old) == 1`). Quote heredoc
 delimiters (`<<'EOF'`; guard-bash blocks an unquoted one whose body holds a backtick).
 
+## Fast CLI tools — prefer them over slow defaults
+
+`rg`/`fd` to search, `ast-grep` for structural search and rewrites, `sd` over `sed -i`, `difft` to read
+diffs, `ruff` (Python) and `oxlint`/`biome` (JS/TS) as the cheap lint before any E2E, `typos` on changed
+files, `tokei` to size a repo, `dust` for disk, `hyperfine` to back a speed claim, `watchexec` instead
+of a polling loop, `git absorb` to fold fixups. A repo's own configured linter wins over these.
+
 ## Session and delivery
 
 - **Hazard check before any push:** `git log origin/<trunk>..HEAD --stat`; list what unpushed commits
